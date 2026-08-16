@@ -69,12 +69,27 @@ static int vendor_input = 1;
 	static ssize_t store_##name(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)store_func \
 	static DEVICE_ATTR(name, (S_IRUGO | S_IWUSR | S_IWGRP), show_##name, store_##name);
 
+struct xiaomi_tap_sensor {
+	bool enabled;
+	bool state;
+	enum common_data_mode mode;
+	const char *state_node;
+};
+
+static struct xiaomi_tap_sensor double_tap_sensor = {
+	.mode = DATA_MODE_14,
+	.state_node = "gesture_double_tap_state",
+};
+
 bool xiaomi_touch_report_gesture(u8 gesture_type)
 {
 	struct xiaomi_tap_sensor *sensor;
 	bool handled = false;
 
 	switch (gesture_type) {
+	case GESTURE_DOUBLETAP_EVENT:
+		sensor = &double_tap_sensor;
+		break;
 	default:
 		return false;
 	}
@@ -130,6 +145,7 @@ static ssize_t gesture_enable_store(struct xiaomi_tap_sensor *sensor,
 		return gesture_enable_store(&sensor, buf, count); \
 	} \
 	static DEVICE_ATTR_RW(gesture_##name##_enabled)
+TAP_SENSOR_ATTRS(double_tap, double_tap_sensor);
 
 static int analy_poll_data(char* poll_data_buf, char* buf)
 {
@@ -736,6 +752,8 @@ CREATE_ATTR(touch_log_level, {
 	});
 
 static struct attribute *touch_attr_group[] = {
+	&dev_attr_gesture_double_tap_state.attr,
+	&dev_attr_gesture_double_tap_enabled.attr,
 #ifdef TOUCH_FOD_SUPPORT
 	&dev_attr_fod_press_status.attr,
 	&dev_attr_fod_test.attr,
