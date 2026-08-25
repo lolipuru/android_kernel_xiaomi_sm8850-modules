@@ -17,7 +17,7 @@
 
 /*****************************************************************************
 *
-* File Name: focaltech_upgrade_ft5572.c
+* File Name: focaltech_upgrade_ft5008.c
 *
 * Author: Focaltech Driver Team
 *
@@ -45,13 +45,13 @@
 * Static function prototypes
 *****************************************************************************/
 /************************************************************************
-* Name: fts_ft5572_crc16_calc_host
+* Name: fts_ft5008_crc16_calc_host
 * Brief:
 * Input:
 * Output:
 * Return: return ecc
 ***********************************************************************/
-static u16 fts_ft5572_crc16_calc_host(u8 *pbuf, u32 length)
+static u16 fts_ft5008_crc16_calc_host(u8 *pbuf, u32 length)
 {
     u16 ecc = 0;
     u32 i = 0;
@@ -71,7 +71,7 @@ static u16 fts_ft5572_crc16_calc_host(u8 *pbuf, u32 length)
 }
 
 /************************************************************************
- * Name: fts_ft5572_flash_write_buf
+ * Name: fts_ft5008_flash_write_buf
  * Brief: write buf data to flash address
  * Input: saddr - start address data write to flash
  *        buf - data buffer
@@ -80,7 +80,7 @@ static u16 fts_ft5572_crc16_calc_host(u8 *pbuf, u32 length)
  * Output:
  * Return: return data ecc of host if success, otherwise return error code
  ***********************************************************************/
-static int fts_ft5572_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay)
+static int fts_ft5008_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay)
 {
     int ret = 0;
     u32 i = 0;
@@ -121,7 +121,7 @@ static int fts_ft5572_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay)
         if ((i == (packet_number - 1)) && remainder)
             packet_len = remainder;
 
-        if (fts_data->bus_type == BUS_TYPE_SPI_V2) {
+        if ((fts_data->bus_type == BUS_TYPE_SPI) && (fts_data->bus_ver == BUS_VER_V2)) {
             packet_buf[0] = FTS_CMD_SET_WFLASH_ADDR;
             packet_buf[1] = BYTE_OFF_16(addr);
             packet_buf[2] = BYTE_OFF_8(addr);
@@ -169,67 +169,55 @@ static int fts_ft5572_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay)
         }
     }
 
-    ecc_in_host = (int)fts_ft5572_crc16_calc_host(buf, len);
+    ecc_in_host = (int)fts_ft5008_crc16_calc_host(buf, len);
     return ecc_in_host;
 }
 
-static void fts_spidebug_recovery(void)
+/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 start */
+void fts_spidebug_recovery(void)
 {
-    uint8_t cmd_0[] = {0x70, 0x55, 0xaa};
-    uint8_t cmd_1[] = {0x70, 0x07, 0xf8, 0x81, 0xca, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00};
-    uint8_t cmd_2[] = {0x70, 0x07, 0xf8, 0x81, 0xc7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t cmd_3[] = {0x70, 0x07, 0xf8, 0x81, 0xc6, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00};
-    uint8_t cmd_4[] = {0x70, 0x07, 0xf8, 0x81, 0xc2, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00};
-    uint8_t cmd_5[] = {0x70, 0x07, 0xf8, 0x81, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t cmd_6[] = {0x70, 0x07, 0xf8, 0x81, 0xc0, 0x00, 0x00, 0x7f, 0x00, 0x00, 0x00};
-    uint8_t cmd_7[] = {0x70, 0x07, 0xf8, 0x81, 0xc1, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00};
-    uint8_t cmd_8[] = {0x70, 0x07, 0xf8, 0x81, 0xc8, 0x00, 0x00, 0xa5, 0x00, 0x00, 0x00};
-    uint8_t cmd_9[] = {0x70, 0x07, 0xf8, 0x81, 0xc8, 0x00, 0x00, 0x0f, 0x00, 0x00, 0x00};
-    uint8_t cmd_10[] = {0x70, 0x07, 0xf8, 0x81, 0xc8, 0x00, 0x00, 0x6a, 0x00, 0x00, 0x00};
-    uint8_t cmd_11[] = {0x70, 0x07, 0xf8, 0x81, 0xc4, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00};
-    uint8_t cmd_12[] = {0x70, 0x06, 0xf9, 0x81, 0xc4, 0x00, 0x00};
-    uint8_t cmd = 0x71;
-    uint8_t val[5] = {0};
-    uint32_t i = 0;
+	u8 cmd_0[] = {0x70, 0x55, 0xaa};
+	u8 cmd_1[] = {0x70, 0x04, 0xfb, 0x80, 0x07, 0x00, 0x00};
+	u8 cmd_2[] = {0x71, 0x00, 0x00, 0x00, 0x00};
+	u8 cmd_3[] = {0x70, 0x07, 0xf8, 0x00, 0x07, 0x00, 0x00, 0x5a, 0x5a, 0x00, 0x00};
+	u8 cmd_4[] = {0x70, 0x0a, 0xf5};
+	u8 id[3] = {0};
+	int i = 0;
+	int retry_num = 3;
 
-    for (i = 0; i < 3; i++) {
-        fts_reset_for_upgrade();
-        mdelay(2);
+	for(i = 0; i < retry_num; i++) {
+		fts_reset_proc(0);
+		mdelay(2);
 
-        fts_spi_transfer_direct(cmd_0, sizeof(cmd_0), NULL, 0);
-        fts_spi_transfer_direct(cmd_1, sizeof(cmd_1), NULL, 0);
-        fts_spi_transfer_direct(cmd_2, sizeof(cmd_2), NULL, 0);
-        fts_spi_transfer_direct(cmd_3, sizeof(cmd_3), NULL, 0);
-        fts_spi_transfer_direct(cmd_4, sizeof(cmd_4), NULL, 0);
-        fts_spi_transfer_direct(cmd_5, sizeof(cmd_5), NULL, 0);
-        fts_spi_transfer_direct(cmd_6, sizeof(cmd_6), NULL, 0);
-        fts_spi_transfer_direct(cmd_7, sizeof(cmd_7), NULL, 0);
-        fts_spi_transfer_direct(cmd_8, sizeof(cmd_8), NULL, 0);
-        fts_spi_transfer_direct(cmd_9, sizeof(cmd_9), NULL, 0);
-        fts_spi_transfer_direct(cmd_10, sizeof(cmd_10), NULL, 0);
-        fts_spi_transfer_direct(cmd_11, sizeof(cmd_11), NULL, 0);
-        mdelay(8);
-        fts_spi_transfer_direct(cmd_12, sizeof(cmd_12), NULL, 0);
-        fts_spi_transfer_direct(&cmd, sizeof(cmd), val, sizeof(val));
+		fts_bus_transfer_direct(cmd_0, sizeof(cmd_0)/sizeof(cmd_0[0]), NULL, 0);
+		msleep(1);
+		fts_bus_transfer_direct(cmd_1, sizeof(cmd_1)/sizeof(cmd_1[0]), NULL, 0);
+		msleep(1);
+		fts_bus_transfer_direct(cmd_2, sizeof(cmd_2)/sizeof(cmd_2[0]), NULL, 0);
+		msleep(1);
+		fts_bus_transfer_direct(cmd_3, sizeof(cmd_3)/sizeof(cmd_3[0]), NULL, 0);
+		msleep(1);
+		fts_bus_transfer_direct(cmd_4, sizeof(cmd_4)/sizeof(cmd_4[0]), NULL, 0);
 
-        if (val[1] == 0x50 && val[2] == 0x00 && val[3] == 0x00 && val[4] == 0x00) {
-            break;
-        }
-        mdelay(10);
-    }
-    fts_reset_for_upgrade();
-    mdelay(100);
+		msleep(20);
+		id[0] = 0x90;
+		fts_read(id, 1, &id[1], 2);
+		if(id[1] == 0x36 && id[2] == 0xB3) {
+			break;
+		}
+		msleep(10);
+	}
 }
-
+/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 end */
 
 /************************************************************************
-* Name: fts_ft5572_upgrade
+* Name: fts_ft5008_upgrade
 * Brief:
 * Input:
 * Output:
 * Return: return 0 if success, otherwise return error code
 ***********************************************************************/
-static int fts_ft5572_upgrade(u8 *buf, u32 len)
+static int fts_ft5008_upgrade(u8 *buf, u32 len)
 {
     int ret = 0;
     u32 start_addr = 0;
@@ -276,9 +264,9 @@ static int fts_ft5572_upgrade(u8 *buf, u32 len)
     }
 
     /* write app */
-    start_addr = upgrade_func_ft5572.appoff;
+    start_addr = upgrade_func_ft5008.appoff;
     delay = (FTS_FLASH_PACKET_SIZE / FTS_SIZE_PAGE) * 2;
-    ecc_in_host = fts_ft5572_flash_write_buf(start_addr, buf, len, delay);
+    ecc_in_host = fts_ft5008_flash_write_buf(start_addr, buf, len, delay);
     if (ecc_in_host < 0 ) {
         FTS_ERROR("flash write fail");
         goto fw_reset;
@@ -308,65 +296,51 @@ static int fts_ft5572_upgrade(u8 *buf, u32 len)
 
 fw_reset:
     FTS_INFO("upgrade fail, reset to normal boot");
+    ret = fts_fwupg_reset_in_boot();
+    if (ret < 0) {
+        FTS_ERROR("reset to normal boot fail");
+    }
+/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 start */
     fts_spidebug_recovery();
+/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 end */
     return -EIO;
 }
 
-
+/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
 int fts_read_lockdown_info(u8 *buf)
 {
-	u32 lockdown_addr = 0x1F800;
-	int ret = 0;
-	u8 lockdown_info[0x20] = {0};
-	int i = 0;
-	int count = 0;
-	
-	fts_flash_read(lockdown_addr, lockdown_info, sizeof(lockdown_info));
-	if (ret < 0) {
-    	FTS_ERROR("fail to get vendor id from tp");
-    	return ret;
-	}
+    u32 lockdown_addr = 0x3F000;
+    int ret = 0;
+    u8 lockdown_info[0x20] = {0};
+    int count = 0;
 
-	for(i = 0; i < 8; i++) {
-		count += sprintf(buf + count, " %02x ", lockdown_info[i]);
-	}
+    ret = fts_flash_read(lockdown_addr, lockdown_info, sizeof(lockdown_info));
+    if (ret < 0) {
+        FTS_ERROR("fail to read lockdown info from tp");
+        return ret;
+    }
 
-	FTS_INFO("read lockdown info: %s\n", lockdown_info);
-	FTS_INFO("read lockdown info: %s\n", buf);
-	//memcpy(buf, lockdown_info, sizeof(lockdown_info));
+    count += sprintf(buf + count, "0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x",
+        lockdown_info[0], lockdown_info[1], lockdown_info[2], lockdown_info[3],
+        lockdown_info[4], lockdown_info[5], lockdown_info[6], lockdown_info[7]);
 
-	return 0;
+    FTS_INFO("read lockdown info: %s\n", lockdown_info);
+    FTS_INFO("read lockdown info: %s\n", buf);
+    //memcpy(buf, lockdown_info, sizeof(lockdown_info));
+
+    return 0;
 }
+/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
-int fts_read_lockdown_info_proc(u8 *buf)
-{
-	u32 lockdown_addr = 0x1F800;
-	int ret = 0;
-	u8 lockdown_info[0x20] = {0};
-	int i = 0;
-	int count = 0;
-
-	ret = fts_flash_read(lockdown_addr, lockdown_info, sizeof(lockdown_info));
-	if (ret < 0) {
-		FTS_ERROR("fail to get vendor id from tp");
-		return ret;
-	}
-
-	for(i = 0; i < 8; i++) {
-		count += sprintf(buf + count, "%c", lockdown_info[i]);
-	}
-	/*memcpy(buf, lockdown_info, sizeof(lockdown_info));*/
-	FTS_INFO("read lockdown info: %s\n", buf);
-	return 0;
-}
-
-struct upgrade_func upgrade_func_ft5572 = {
-    .ctype = {0x93},
+struct upgrade_func upgrade_func_ft5008 = {
+    .ctype = {0x8C, 0x8D, 0x8E, 0x90},
     .fwveroff = 0x010E,
     .fwcfgoff = 0x1F80,
     .appoff = 0x0000,
-    .upgspec_version = UPGRADE_SPEC_V_1_1,
+/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 start */
+    .upgspec_version = UPGRADE_SPEC_V_1_0,
+/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 end */
     .pramboot_supported = false,
-    .hid_supported = false,
-    .upgrade = fts_ft5572_upgrade,
+    .hid_supported = true,
+    .upgrade = fts_ft5008_upgrade,
 };
