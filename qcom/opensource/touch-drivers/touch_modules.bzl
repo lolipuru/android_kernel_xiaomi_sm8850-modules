@@ -264,3 +264,27 @@ module_entry(
             "xiaomi/xiaomi_touch_device.c",
     ],
 )
+
+#define ddk_module() for focaltech_touch_3683
+module_entry(
+    name = "focaltech_touch_3683",
+    config_option = "CONFIG_TOUCHSCREEN_FOCALTECH_TOUCH_3683",
+    srcs = [
+            "focaltech_touch_3683/focaltech_core.c",
+            "focaltech_touch_3683/focaltech_ex_fun.c",
+            "focaltech_touch_3683/focaltech_ex_mode.c",
+            "focaltech_touch_3683/focaltech_gesture.c",
+            "focaltech_touch_3683/focaltech_esdcheck.c",
+            "focaltech_touch_3683/focaltech_point_report_check.c",
+            "focaltech_touch_3683/focaltech_flash.c",
+            "focaltech_touch_3683/focaltech_spi.c",
+            "focaltech_touch_3683/focaltech_flash/focaltech_upgrade_ft3383.c",
+            "focaltech_touch_3683/focaltech_test/focaltech_test.c",
+            "focaltech_touch_3683/focaltech_test/focaltech_test_ini.c",
+            "focaltech_touch_3683/focaltech_test/supported_ic/focaltech_test_ft3383.c",
+    ],
+    deps = [
+        "xiaomi_touch",
+        "qts",
+    ],
+)

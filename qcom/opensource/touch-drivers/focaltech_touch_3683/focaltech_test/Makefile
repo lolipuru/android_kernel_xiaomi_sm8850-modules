@@ -1,0 +1,3 @@
+obj-$(CONFIG_TOUCHSCREEN_FOCALTECH_TOUCH_3683) += focaltech_test.o
+obj-$(CONFIG_TOUCHSCREEN_FOCALTECH_TOUCH_3683) += focaltech_test_ini.o
+obj-$(CONFIG_TOUCHSCREEN_FOCALTECH_TOUCH_3683) += supported_ic/
