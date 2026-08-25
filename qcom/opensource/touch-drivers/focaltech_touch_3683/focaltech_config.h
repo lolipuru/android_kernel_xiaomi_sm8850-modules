@@ -177,14 +177,14 @@
 #define _FT3269             0x3269008B
 
 #define _FT3683G            0x56720090
-
+#define _FT3683             0x36830092
 
 /*************************************************/
 
 /*
  * choose your ic chip type of focaltech
  */
-#define FTS_CHIP_TYPE   _FT3383
+#define FTS_CHIP_TYPE   _FT3683
 
 /******************* Enables *********************/
 /*********** 1 to enable, 0 to disable ***********/
