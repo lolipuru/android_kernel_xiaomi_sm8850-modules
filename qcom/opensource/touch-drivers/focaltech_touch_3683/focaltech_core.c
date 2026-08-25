@@ -4081,7 +4081,7 @@ void fts_init_hardware_param(void)
 	hardware_param.raw_data_page_size = 5;
 	hardware_param.raw_data_buf_size = 5;
 	memset(hardware_param.config_file_name, 0, 64);
-	memcpy(hardware_param.config_file_name, "pandora_focal_thp_config.ini", strlen("pandora_focal_thp_config.ini"));
+	memcpy(hardware_param.config_file_name, "myron_fts_thp_config.ini", strlen("myron_fts_thp_config.ini"));
 	memset(hardware_param.driver_version, 0, 64);
 	memcpy(hardware_param.driver_version, FOCAL_DRIVER_VERSION, strlen(FOCAL_DRIVER_VERSION));
 	/* save lockdown type: u8 */
