@@ -196,7 +196,8 @@ def define_canoe(t,v):
             "focaltech_fts",
             "goodix_ts",
             "st_fts",
-            "qts"
+            "qts",
+            "xiaomi_touch",
         ],
         config_options = [
             "TOUCH_DLKM_ENABLE",
@@ -207,7 +208,10 @@ def define_canoe(t,v):
             "CONFIG_TOUCHSCREEN_ATMEL_MXT",
             "CONFIG_TOUCHSCREEN_ST",
             "CONFIG_QTS_ENABLE",
-            "CONFIG_TOUCHSCREEN_DUMMY"
+            "CONFIG_TOUCHSCREEN_DUMMY",
+            "CONFIG_TOUCHSCREEN_XIAOMITOUCH",
+            "TOUCH_THP_SUPPORT",
+            "TOUCH_FOD_SUPPORT",
         ],
 )
 
