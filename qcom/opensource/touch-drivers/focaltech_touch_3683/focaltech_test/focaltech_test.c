@@ -44,7 +44,7 @@
 struct fts_test *fts_ftest;
 
 struct test_funcs *test_func_list[] = {
-    &test_func_ft5572,
+    &test_func_ft5672,
 };
 
 /*****************************************************************************
@@ -2712,4 +2712,3 @@ int fts_test_exit(struct fts_ts_data *ts_data)
 	FTS_TEST_FUNC_EXIT();
 	return 0;
 }
-

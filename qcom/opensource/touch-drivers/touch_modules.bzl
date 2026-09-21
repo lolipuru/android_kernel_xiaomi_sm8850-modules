@@ -281,7 +281,7 @@ module_entry(
             "focaltech_touch_3683/focaltech_flash/focaltech_upgrade_ft3683.c",
             "focaltech_touch_3683/focaltech_test/focaltech_test.c",
             "focaltech_touch_3683/focaltech_test/focaltech_test_ini.c",
-            "focaltech_touch_3683/focaltech_test/supported_ic/focaltech_test_ft3383.c",
+            "focaltech_touch_3683/focaltech_test/supported_ic/focaltech_test_ft3683.c",
     ],
     deps = [
         "xiaomi_touch",

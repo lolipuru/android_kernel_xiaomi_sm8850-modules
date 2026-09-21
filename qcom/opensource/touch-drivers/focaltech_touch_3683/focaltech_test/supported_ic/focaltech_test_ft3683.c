@@ -1,7 +1,7 @@
 /************************************************************************
 * Copyright (c) 2012-2021, Focaltech Systems (R), All Rights Reserved.
 *
-* File Name: Focaltech_test_ft5572.c
+* File Name: Focaltech_test_ft5672.c
 *
 * Author: Focaltech Driver Team
 *
@@ -71,7 +71,7 @@ static int short_test_ch_to_all(
     return 0;
 }
 
-static int get_cb_ft5572(int *cb_buf, int byte_num, bool is_cf)
+static int get_cb_ft5672(int *cb_buf, int byte_num, bool is_cf)
 {
     int ret = 0;
     int i = 0;
@@ -172,7 +172,7 @@ static int scap_cb_ccbypass(struct fts_test *tdata, int *scap_cb, bool *result)
             return ret;
         }
 
-        ret = get_cb_ft5572(scb_tmp, byte_num, false);
+        ret = get_cb_ft5672(scb_tmp, byte_num, false);
         if (ret < 0) {
             FTS_TEST_SAVE_ERR("read sc_cb fail,ret=%d\n", ret);
             return ret;
@@ -225,7 +225,7 @@ static int scap_cb_ccbypass(struct fts_test *tdata, int *scap_cb, bool *result)
             return ret;
         }
 
-        ret = get_cb_ft5572(scb_tmp, byte_num, false);
+        ret = get_cb_ft5672(scb_tmp, byte_num, false);
         if (ret < 0) {
             FTS_TEST_SAVE_ERR("read sc_cb fail,ret=%d\n", ret);
             return ret;
@@ -278,7 +278,7 @@ static int scap_cb_ccbypass(struct fts_test *tdata, int *scap_cb, bool *result)
             return ret;
         }
 
-        ret = get_cb_ft5572(scb_tmp, byte_num, false);
+        ret = get_cb_ft5672(scb_tmp, byte_num, false);
         if (ret < 0) {
             FTS_TEST_SAVE_ERR("read sc_cb fail,ret=%d\n", ret);
             return ret;
@@ -319,7 +319,7 @@ static int scap_cb_ccbypass(struct fts_test *tdata, int *scap_cb, bool *result)
 /*
  * start_scan - start to scan a frame
  */
-static int start_scan_ft5572(int frame_num)
+static int start_scan_ft5672(int frame_num)
 {
     int ret = 0;
     u8 addr = 0;
@@ -364,7 +364,7 @@ static int start_scan_ft5572(int frame_num)
     return 0;
 }
 
-static int get_noise_ft5572(struct fts_test *tdata, int *noise_data, u8 fre)
+static int get_noise_ft5672(struct fts_test *tdata, int *noise_data, u8 fre)
 {
     int ret = 0;
     int byte_num = 0;
@@ -389,7 +389,7 @@ static int get_noise_ft5572(struct fts_test *tdata, int *noise_data, u8 fre)
         return ret;
     }
 
-    ret = start_scan_ft5572(tdata->ic.mc_sc.thr.basic.noise_framenum);
+    ret = start_scan_ft5672(tdata->ic.mc_sc.thr.basic.noise_framenum);
     if (ret < 0) {
         FTS_TEST_SAVE_ERR("start_scan fail,ret=%d\n", ret);
         return ret;
@@ -462,7 +462,7 @@ err_null_noise:
     return ret;
 }
 
-static int ft5572_rawdata_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_rawdata_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     int i = 0;
@@ -624,7 +624,7 @@ test_err:
     return ret;
 }
 
-static int ft5572_uniformity_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_uniformity_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     int row = 0;
@@ -763,7 +763,7 @@ test_err:
     return ret;
 }
 
-static int ft5572_scap_cb_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_scap_cb_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     u8 sc_mode = 0;
@@ -839,7 +839,7 @@ test_err:
 
 }
 
-static int ft5572_scap_rawdata_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_scap_rawdata_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     int i = 0;
@@ -1023,7 +1023,7 @@ test_err:
     return ret;
 }
 
-static int ft5572_short_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_short_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     int ch_num = 0;
@@ -1078,7 +1078,7 @@ test_err:
     return ret;
 }
 
-static int ft5572_panel_differ_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_panel_differ_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     bool tmp_result = false;
@@ -1235,7 +1235,7 @@ test_err:
     return ret;
 }
 
-static int ft5572_noise_test(struct fts_test *tdata, bool *test_result)
+static int ft5672_noise_test(struct fts_test *tdata, bool *test_result)
 {
     int ret = 0;
     bool tmp_result = false;
@@ -1339,7 +1339,7 @@ static int ft5572_noise_test(struct fts_test *tdata, bool *test_result)
         goto restore_reg;
     }
 
-    ret = get_noise_ft5572(tdata, &noise[0], 0x00);
+    ret = get_noise_ft5672(tdata, &noise[0], 0x00);
     if (ret < 0) {
         FTS_TEST_SAVE_ERR("get noise fails,ret=%d\n", ret);
         goto restore_reg;
@@ -1394,7 +1394,7 @@ test_err:
     return ret;
 }
 
-static bool ft5572_rst_test(struct fts_test *tdata, bool *test_result)
+static bool ft5672_rst_test(struct fts_test *tdata, bool *test_result)
 {
 	u8 value_1 = 0;
 	u8 value_2 = 0;
@@ -1542,7 +1542,7 @@ static void free_item_data(struct fts_test *tdata)
     fts_free(tdata->item6_data);
 }
 
-static int start_test_ft5572(void)
+static int start_test_ft5672(void)
 {
     int ret = 0;
     struct fts_test *tdata = fts_ftest;
@@ -1567,7 +1567,7 @@ static int start_test_ft5572(void)
     }
     /* rst test */
     if (true == test_item->rst_test) {
-        ret = ft5572_rst_test(tdata, &temp_result);
+        ret = ft5672_rst_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("rst_test fails");
@@ -1576,7 +1576,7 @@ static int start_test_ft5572(void)
 
     /* noise test */
     if (true == test_item->noise_test) {
-        ret = ft5572_noise_test(tdata, &temp_result);
+        ret = ft5672_noise_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("noise_test fails");
@@ -1585,7 +1585,7 @@ static int start_test_ft5572(void)
 
     /* rawdata test */
     if (true == test_item->rawdata_test) {
-        ret = ft5572_rawdata_test(tdata, &temp_result);
+        ret = ft5672_rawdata_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("rawdata_test fails");
@@ -1593,7 +1593,7 @@ static int start_test_ft5572(void)
     }
 
     if (true == test_item->rawdata_uniformity_test) {
-        ret = ft5572_uniformity_test(tdata, &temp_result);
+        ret = ft5672_uniformity_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("rawdata_uniformity_test fails");
@@ -1602,7 +1602,7 @@ static int start_test_ft5572(void)
 
     /* panel differ test */
     if (true == test_item->panel_differ_test) {
-        ret = ft5572_panel_differ_test(tdata, &temp_result);
+        ret = ft5672_panel_differ_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("panel_differ_test fails");
@@ -1611,7 +1611,7 @@ static int start_test_ft5572(void)
 
     /* scap_rawdata test */
     if (true == test_item->scap_rawdata_test) {
-        ret = ft5572_scap_rawdata_test(tdata, &temp_result);
+        ret = ft5672_scap_rawdata_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("scap_rawdata_test fails");
@@ -1620,7 +1620,7 @@ static int start_test_ft5572(void)
 
     /* scap_cb test */
     if (true == test_item->scap_cb_test) {
-        ret = ft5572_scap_cb_test(tdata, &temp_result);
+        ret = ft5672_scap_cb_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("scap_cb_test fails");
@@ -1629,7 +1629,7 @@ static int start_test_ft5572(void)
 
     /* short test */
     if (true == test_item->short_test) {
-        ret = ft5572_short_test(tdata, &temp_result);
+        ret = ft5672_short_test(tdata, &temp_result);
         if ((ret < 0) || (false == temp_result)) {
             test_result = false;
             FTS_TEST_ERROR("short_test fails");
@@ -1688,7 +1688,7 @@ static int fts_open_test(void)
 	}
 	/* panel differ test */
 	if (true == test_item->panel_differ_test) {
-		ret = ft5572_panel_differ_test(tdata, &temp_result);
+		ret = ft5672_panel_differ_test(tdata, &temp_result);
 		if ((ret < 0) || (false == temp_result))
 			test_result = false;
 	}
@@ -1725,7 +1725,7 @@ static int fts_short_test(void)
 	}
 	/* short test */
 	if (true == test_item->short_test) {
-		ret = ft5572_short_test(tdata, &temp_result);
+		ret = ft5672_short_test(tdata, &temp_result);
 		if ((ret < 0) || (false == temp_result))
 			test_result = false;
 	}
@@ -1860,7 +1860,7 @@ out:
     return ret;
 }
 
-static int param_init_ft5572(void)
+static int param_init_ft5672(void)
 {
     struct mc_sc_threshold *thr = &fts_ftest->ic.mc_sc.thr;
 
@@ -1885,7 +1885,7 @@ static int param_init_ft5572(void)
     return 0;
 }
 
-static void save_data_ft5572(char *buf, int *data_length)
+static void save_data_ft5672(char *buf, int *data_length)
 {
     struct fts_test *tdata = fts_ftest;
     struct mc_sc_testitem *test_item = &tdata->ic.mc_sc.u.item;
@@ -2107,7 +2107,7 @@ static void save_data_ft5572(char *buf, int *data_length)
     free_item_data(tdata);
 }
 
-static int ft3383_get_rawdata(bool is_raw, int *data_buffer, int byte_num)
+static int ft5672_get_rawdata(bool is_raw, int *data_buffer, int byte_num)
 {
 	int ret = 0;
 	int i = 0;
@@ -2155,17 +2155,17 @@ restore_reg:
 	return ret;
 }
 
-static int ft3383_data_dump(int *rawdata, int *differ_data)
+static int ft5672_data_dump(int *rawdata, int *differ_data)
 {
 	int ret = 0;
 	struct fts_test *tdata = fts_ftest;
 	FTS_TEST_FUNC_ENTER();
-	ret = ft3383_get_rawdata(true, rawdata, tdata->node.node_num * 2);
+	ret = ft5672_get_rawdata(true, rawdata, tdata->node.node_num * 2);
 	if (ret) {
 		FTS_TEST_ERROR("get rawdata error!");
 		goto out;
 	}
-	ret = ft3383_get_rawdata(false, differ_data, tdata->node.node_num * 2);
+	ret = ft5672_get_rawdata(false, differ_data, tdata->node.node_num * 2);
 	if (ret) {
 		FTS_TEST_ERROR("get differ_data error!");
 		goto out;
@@ -2174,19 +2174,20 @@ out:
 	FTS_TEST_FUNC_EXIT();
 	return ret;
 }
-struct test_funcs test_func_ft5572 = {
-    .ctype = {0x93},
+struct test_funcs test_func_ft5672 = {
+    .ctype = {0x90, 0x92},
+    .raw_u16 = true,
     .hwtype = IC_HW_MC_SC,
     .key_num_total = 0,
     .mc_sc_short_v2 = true,
     .cb_high_support = true,
     .param_update_support = true,
-    .param_init = param_init_ft5572,
-    .start_test = start_test_ft5572,
+    .param_init = param_init_ft5672,
+    .start_test = start_test_ft5672,
     .open_test = fts_open_test,
     .short_test = fts_short_test,
     .spi_test = fts_spi_test,
     .rst_test = fts_rst_test,
-    .data_dump = ft3383_data_dump,
-    .save_data_private = save_data_ft5572,
+    .data_dump = ft5672_data_dump,
+    .save_data_private = save_data_ft5672,
 };
