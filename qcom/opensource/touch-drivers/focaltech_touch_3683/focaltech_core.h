@@ -70,6 +70,7 @@
 #include "focaltech_common.h"
 #include "../../xiaomi/xiaomi_touch.h"
 #include "./focaltech_test/focaltech_test_ini.h"
+#include "../qts/qts_core.h"
 
 /*****************************************************************************
 * Private constant and macro definitions using #define
@@ -165,7 +166,7 @@
 extern struct fts_test *fts_ftest;
 extern hardware_operation_t hardware_operation;
 extern hardware_param_t hardware_param;
-// extern int touch_mode[DATA_MODE_45][VALUE_TYPE_SIZE];
+extern int touch_mode[DATA_MODE_45][GET_MODE_VALUE_NUM];
 /*****************************************************************************
 *  Alternative mode (When something goes wrong, the modules may be able to solve the problem.)
 *****************************************************************************/
@@ -519,6 +520,9 @@ struct fts_ts_data {
 	int dump_type;
 #endif /* TOUCH_DUMP_TIC_SUPPORT */
 #endif
+  struct completion tui_completion;
+  u8 tui_enabled;
+  struct qts_vendor_callback_ops vendor_ops;
 };
 
 enum GESTURE_MODE_TYPE {
@@ -725,7 +729,7 @@ int fts_read_lockdown_info_proc(u8 *buf);
 /*int fts_fw_recovery(void);*/
 
 /* Other */
-int fts_thp_ic_write_interfaces(u8 addr, s32* value, int value_len);
+int fts_thp_ic_write_interfaces(u8 addr, s32 *value, int value_len);
 int fts_reset_proc(int hdelayms);
 int fts_recover_after_reset(void);
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h);
@@ -740,6 +744,33 @@ void fts_irq_disable(void);
 void fts_irq_enable(void);
 
 int fts_get_lockdown_information(struct fts_ts_data *ts_data);
+
+void fts_init_xiaomi_touchfeature_v3(struct fts_ts_data *ts_data);
+void fts_update_touchmode_data(struct fts_ts_data *ts_data);
+void fts_set_cur_value(int mode_input, int *value_input);
+void fts_get_mode_value(common_data_t *common_data);
+void fts_get_mode_all(common_data_t *common_data);
+void fts_reset_mode(common_data_t *common_data);
+void fts_set_charge_state(int status);
+int fts_palm_sensor_write(int on);
+int fts_palm_on(struct fts_ts_data *data, int enable);
+int fts_charger_on(struct fts_ts_data *data, int state);
+int fts_set_thermal_temp(int temp);
+void fts_set_fod_downup(struct fts_ts_data *ts_data, int enable);
+void fts_xiaomi_touch_fod_attn(int value);
+void fts_xiaomi_touch_fod_low_attn(int value);
+void focal_touch_dfs_test(int value);
+int fts_htc_enter_glove(int *value);
+int fts_htc_set_double_scan(int value);
+int fts_htc_set_normalize_study(int value);
+int fts_log_level_control(int value);
+
+int focal_pre_la_tui_enable(struct fts_ts_data *ts_data);
+int focal_post_la_tui_enable(struct fts_ts_data *ts_data);
+int focal_pre_la_tui_disable(struct fts_ts_data *ts_data);
+int focal_post_la_tui_disable(struct fts_ts_data *ts_data);
+int focal_enable_touch_irq(struct fts_ts_data *ts_data, bool enable);
+int focal_get_irq_num(struct fts_ts_data *ts_data);
 
 extern int mi_disp_set_fod_queue_work(u32 fod_btn, bool from_touch);
 extern int update_fod_press_status(int value);
