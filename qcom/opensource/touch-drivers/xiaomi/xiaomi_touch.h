@@ -359,6 +359,10 @@ void schedule_resume_suspend_work(s8 touch_id, bool resume_work);
 void driver_update_touch_mode(s8 touch_id, int touch_mode[DATA_MODE_45], long update_mode_mask);
 u8 xiaomi_get_gesture_type(s8 touch_id);
 int driver_get_touch_mode(s8 touch_id, int mode);
+#if IS_ENABLED(CONFIG_MIEV)
+void xiaomi_touch_mievent_report_int(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name, long error_code);
+void xiaomi_touch_mievent_report_str(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name);
+#endif
 
 /* use in xiaomi_touch module */
 #ifdef TOUCH_KNOCK_SUPPORT

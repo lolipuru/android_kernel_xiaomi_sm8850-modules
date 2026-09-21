@@ -11,6 +11,9 @@
 #include <linux/power_supply.h>
 #include <net/sock.h>
 #include <net/netlink.h>
+#if IS_ENABLED(CONFIG_MIEV)
+#include <miev/mievent.h>
+#endif
 
 #include "xiaomi_touch.h"
 static xiaomi_touch_t xiaomi_touch;
@@ -1021,6 +1024,53 @@ static void xiaomi_unregister_power_supply_event(void)
 	cancel_work_sync(&xiaomi_touch.power_supply_work);
 	power_supply_unreg_notifier(&xiaomi_touch.power_supply_notifier);
 }
+
+#if IS_ENABLED(CONFIG_MIEV)
+void xiaomi_touch_mievent_report_int(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name, long error_code)
+{
+	struct misight_mievent *event;
+
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+	LOG_INFO("factory build,return\n");
+	return;
+#endif
+	LOG_INFO("code:%d,fault_name:%s,panel_id:%d,vendor_name:%s,error_code:%ld\n", code, fault_name, panel_id, vendor_name, error_code);
+	event = cdev_tevent_alloc(code);
+	if (!event) {
+		LOG_ERROR("misight event is error\n");
+		return;
+	}
+	cdev_tevent_add_int(event, "panel_id", panel_id);
+	cdev_tevent_add_str(event, "fault_name", fault_name);
+	cdev_tevent_add_str(event, "vendor_name", vendor_name);
+	cdev_tevent_add_int(event, "error_code", error_code);
+	cdev_tevent_write(event);
+	cdev_tevent_destroy(event);
+}
+EXPORT_SYMBOL_GPL(xiaomi_touch_mievent_report_int);
+
+void xiaomi_touch_mievent_report_str(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name)
+{
+	struct misight_mievent *event;
+
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+	LOG_INFO("factory build,return\n");
+	return;
+#endif
+	LOG_INFO("code:%d,fault_name:%s,panel_id:%d,vendor_name:%s\n", code, fault_name, panel_id, vendor_name);
+	event = cdev_tevent_alloc(code);
+	if (!event) {
+		LOG_ERROR("misight event is error\n");
+		return;
+	}
+	cdev_tevent_add_int(event, "panel_id", panel_id);
+	cdev_tevent_add_str(event, "fault_name", fault_name);
+	cdev_tevent_add_str(event, "vendor_name", vendor_name);
+	cdev_tevent_write(event);
+	cdev_tevent_destroy(event);
+}
+EXPORT_SYMBOL_GPL(xiaomi_touch_mievent_report_str);
+#endif
 
 void nfc_to_touch_event(s8 touch_id,u8 val){
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(touch_id);
