@@ -1996,5 +1996,24 @@ int qts_trusted_touch_mem_release(void *vendor_data)
 EXPORT_SYMBOL_GPL(qts_trusted_touch_mem_release);
 #endif
 
+struct qts_data *get_qts_data_helper(struct device *dev)
+{
+	u32 idx = 0;
+
+	if (!qts_data_entries)
+		return NULL;
+
+	if (dev && dev->of_node) {
+		if (of_property_read_u32(dev->of_node, "qcom,client_id", &idx))
+			idx = 0;
+	}
+
+	if (idx >= QTS_CLIENT_MAX)
+		return NULL;
+
+	return &qts_data_entries->info[idx];
+}
+EXPORT_SYMBOL(get_qts_data_helper);
+
 MODULE_DESCRIPTION("Qualcomm Technologies, Inc. Touchscreen driver");
 MODULE_LICENSE("GPL");

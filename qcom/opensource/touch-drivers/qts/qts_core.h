@@ -166,3 +166,5 @@ struct qts_data_entries {
 #ifdef CONFIG_ARCH_QTI_VM
 void qts_trusted_touch_tvm_i2c_failure_report(struct qts_data *qts_data);
 #endif
+
+struct qts_data *get_qts_data_helper(struct device *dev);
