@@ -78,11 +78,6 @@ static int fts_ts_resume(struct device *dev);
 #ifdef FTS_XIAOMI_TOUCHFEATURE
 int fts_ic_data_collect(char *buf, int *length);
 static int fts_read_and_report_foddata(struct fts_ts_data *data);
-static void fts_game_mode_recovery(struct fts_ts_data *ts_data);
-static void fts_charger_status_recovery(struct fts_ts_data *ts_data);
-static void fts_fod_status_recovery(struct fts_ts_data *ts_data);
-static void fts_report_rate_recovery(struct fts_ts_data *ts_data);
-static void fts_game_idle_high_refresh_recovery(struct fts_ts_data *ts_data);
 /*static int fts_change_fps(void *data);*/
 static void fts_recover_gesture_from_sleep(struct fts_ts_data *data);
 // extern void touch_irq_boost(void);
@@ -294,25 +289,23 @@ int fts_wait_tp_to_valid(void)
 *****************************************************************************/
 void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 {
+	int ret = 0;
+	s32 report_rate_val = 0x87;
 	FTS_FUNC_ENTER();
-	/* wait tp stable */
 	fts_wait_tp_to_valid();
-	/* recover TP charger state 0x8B */
-	fts_charger_status_recovery(ts_data);
-	/* recover TP glove state 0xC0 */
-	/* recover TP cover state 0xC1 */
-	/*fts_ex_mode_recovery(ts_data);*/
-	/* recover TP gesture state 0xD0 */
+	if (ts_data->charger_status)
+		fts_charger_on(ts_data, 1);
 	fts_gesture_recovery(ts_data);
-	/* recover TP report_rate state 0x92 */
-	fts_report_rate_recovery(ts_data);
-#ifdef FTS_XIAOMI_TOUCHFEATURE
-	/* recover TP game mode state */
-	fts_game_mode_recovery(ts_data);
-	/* recover TP idle refresh state 0x8E */
-	fts_game_idle_high_refresh_recovery(ts_data);
-	/* recover TP fod state 0xCF */
-	fts_fod_status_recovery(ts_data);
+	if (ts_data->report_rate_status == 0x87) {
+		ret = fts_thp_ic_write_interfaces(0x13, &report_rate_val, 2);
+		if (ret < 0 && debug_log_level)
+			FTS_ERROR("fts_report_rate_recovery failed");
+	}
+	fts_update_touchmode_data(ts_data);
+#ifdef FTS_TOUCHSCREEN_FOD
+	if (ts_data->fod_status > 0) {
+		fts_fod_reg_write(FTS_REG_GESTURE_FOD_ON, true);
+	}
 #endif
 	FTS_FUNC_EXIT();
 }
@@ -2569,17 +2562,21 @@ int fts_log_level_control(int value)
 			FTS_ERROR("fts data is null");
 		return -1;
 	}
-	if (debug_log_level >= 3)
+
+	if (debug_log_level > 2)
 		FTS_INFO("debug level: %d", value);
 
 	debug_log_level = value;
-	if (value >= 4)
-		fts_data->touch_fod_size = 200;
-	else
-		fts_data->touch_fod_size = 9;
 
-	if (value == 3 || value >= 4)
-		FTS_INFO("fts_data->touch_fod_size %d", fts_data->touch_fod_size);
+	if (debug_log_level < 4) {
+		fts_data->touch_fod_size = 9;
+		if (debug_log_level != 3)
+			return value;
+	} else {
+		fts_data->touch_fod_size = 200;
+	}
+
+	FTS_INFO("fts_data->touch_fod_size %d", fts_data->touch_fod_size);
 
 	return value;
 }
