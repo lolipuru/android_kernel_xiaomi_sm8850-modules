@@ -4623,15 +4623,24 @@ if (ts_data->fts_tp_class == NULL) {
 
 	ts_data->charger_status = -1;
 
+	struct qts_vendor_data qts_vdata;
+
 	memset(&ts_data->vendor_ops, 0, sizeof(ts_data->vendor_ops));
-	ts_data->vendor_ops.enable_irq = (void *)focal_enable_touch_irq;
+	ts_data->vendor_ops.enable_touch_irq = (void *)focal_enable_touch_irq;
 	ts_data->vendor_ops.get_irq_num = (void *)focal_get_irq_num;
 	ts_data->vendor_ops.pre_la_tui_enable = (void *)focal_pre_la_tui_enable;
 	ts_data->vendor_ops.post_la_tui_enable = (void *)focal_post_la_tui_enable;
 	ts_data->vendor_ops.pre_la_tui_disable = (void *)focal_pre_la_tui_disable;
 	ts_data->vendor_ops.post_la_tui_disable = (void *)focal_post_la_tui_disable;
 
-	ret = qts_client_register(ts_data->dev, &ts_data->vendor_ops, ts_data);
+	memset(&qts_vdata, 0, sizeof(qts_vdata));
+	qts_vdata.spi = ts_data->spi;
+	qts_vdata.bus_type = 2;
+	qts_vdata.vendor_data = ts_data;
+	qts_vdata.qts_vendor_ops = ts_data->vendor_ops;
+	qts_vdata.client_type = 0;
+
+	ret = qts_client_register(&qts_vdata);
 	if (ret && debug_log_level) {
 		FTS_ERROR("qts_client_register fail\n");
 	}
