@@ -60,6 +60,8 @@ def define_target_variant_modules(target, variant, registry, modules, config_opt
     ]
     if target in ("art-tuivm", "art-oemvm"):
         socrepo_deps.append(soc_label("{}/drivers/virt/gunyah/gunyah_crash_cleaner".format(kernel_build)))
+    if not vm_target:
+        socrepo_deps.append(soc_label("{}/drivers/misc/miev".format(kernel_build)))
 
     deps = socrepo_deps
 

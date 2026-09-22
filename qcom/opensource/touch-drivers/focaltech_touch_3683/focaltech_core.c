@@ -2584,6 +2584,7 @@ int fts_log_level_control(int value)
 	return value;
 }
 
+#if IS_ENABLED(CONFIG_MIEV)
 void focal_touch_dfs_test(int value)
 {
 	switch (value) {
@@ -2610,6 +2611,7 @@ void focal_touch_dfs_test(int value)
 		break;
 	}
 }
+#endif
 
 void fts_xiaomi_touch_fod_test(int value)
 {
@@ -4411,7 +4413,9 @@ void fts_init_xiaomi_touchfeature_v3(struct fts_ts_data *ts_data)
 	hardware_operation.xiaomi_touch_fod_attn_test = fts_xiaomi_touch_fod_attn;
 	hardware_operation.xiaomi_touch_fod_low_attn = fts_xiaomi_touch_fod_low_attn;
 	hardware_operation.set_thermal_temp = fts_set_thermal_temp;
+#if IS_ENABLED(CONFIG_MIEV)
 	hardware_operation.touch_dfs_test = focal_touch_dfs_test;
+#endif
 
 #ifdef TOUCH_DUMP_TIC_SUPPORT
 	fts_data->dump_type = DUMP_OFF;

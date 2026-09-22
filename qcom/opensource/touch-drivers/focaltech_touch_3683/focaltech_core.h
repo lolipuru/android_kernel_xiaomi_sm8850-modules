@@ -759,12 +759,13 @@ int fts_set_thermal_temp(int temp);
 void fts_set_fod_downup(struct fts_ts_data *ts_data, int enable);
 void fts_xiaomi_touch_fod_attn(int value);
 void fts_xiaomi_touch_fod_low_attn(int value);
+#if IS_ENABLED(CONFIG_MIEV)
 void focal_touch_dfs_test(int value);
+#endif
 int fts_htc_enter_glove(int *value);
 int fts_htc_set_double_scan(int value);
 int fts_htc_set_normalize_study(int value);
 int fts_log_level_control(int value);
-
 int focal_pre_la_tui_enable(struct fts_ts_data *ts_data);
 int focal_post_la_tui_enable(struct fts_ts_data *ts_data);
 int focal_pre_la_tui_disable(struct fts_ts_data *ts_data);
