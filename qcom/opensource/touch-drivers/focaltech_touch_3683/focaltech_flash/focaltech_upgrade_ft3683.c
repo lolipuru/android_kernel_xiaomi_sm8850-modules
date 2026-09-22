@@ -121,7 +121,7 @@ static int fts_ft5008_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay)
         if ((i == (packet_number - 1)) && remainder)
             packet_len = remainder;
 
-        if ((fts_data->bus_type == BUS_TYPE_SPI) && (fts_data->bus_ver == BUS_VER_V2)) {
+        if (fts_data->bus_type == BUS_TYPE_SPI) {
             packet_buf[0] = FTS_CMD_SET_WFLASH_ADDR;
             packet_buf[1] = BYTE_OFF_16(addr);
             packet_buf[2] = BYTE_OFF_8(addr);
@@ -189,15 +189,15 @@ void fts_spidebug_recovery(void)
 		fts_reset_proc(0);
 		mdelay(2);
 
-		fts_bus_transfer_direct(cmd_0, sizeof(cmd_0)/sizeof(cmd_0[0]), NULL, 0);
+		fts_spi_transfer_direct(cmd_0, sizeof(cmd_0)/sizeof(cmd_0[0]), NULL, 0);
 		msleep(1);
-		fts_bus_transfer_direct(cmd_1, sizeof(cmd_1)/sizeof(cmd_1[0]), NULL, 0);
+		fts_spi_transfer_direct(cmd_1, sizeof(cmd_1)/sizeof(cmd_1[0]), NULL, 0);
 		msleep(1);
-		fts_bus_transfer_direct(cmd_2, sizeof(cmd_2)/sizeof(cmd_2[0]), NULL, 0);
+		fts_spi_transfer_direct(cmd_2, sizeof(cmd_2)/sizeof(cmd_2[0]), NULL, 0);
 		msleep(1);
-		fts_bus_transfer_direct(cmd_3, sizeof(cmd_3)/sizeof(cmd_3[0]), NULL, 0);
+		fts_spi_transfer_direct(cmd_3, sizeof(cmd_3)/sizeof(cmd_3[0]), NULL, 0);
 		msleep(1);
-		fts_bus_transfer_direct(cmd_4, sizeof(cmd_4)/sizeof(cmd_4[0]), NULL, 0);
+		fts_spi_transfer_direct(cmd_4, sizeof(cmd_4)/sizeof(cmd_4[0]), NULL, 0);
 
 		msleep(20);
 		id[0] = 0x90;
