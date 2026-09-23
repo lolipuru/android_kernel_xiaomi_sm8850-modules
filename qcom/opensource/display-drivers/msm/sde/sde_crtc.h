@@ -656,6 +656,9 @@ struct sde_crtc {
 
 	struct sde_cesta_client *cesta_client;
 	u32 mdnie_art_frame_count;
+#ifdef MI_DISPLAY_MODIFY
+	struct mutex crtc_cesta_client_lock;
+#endif
 
 	struct hfi_crtc *hfi_crtc;
 	struct sde_crtc_hal_funcs hal_ops;

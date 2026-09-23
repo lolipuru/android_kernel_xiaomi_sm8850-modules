@@ -145,6 +145,10 @@ struct dsi_phy_cfg {
 	unsigned long bit_clk_rate_hz;
 	struct dsi_split_link_config split_link;
 	u32 data_lanes;
+#ifdef MI_DISPLAY_MODIFY
+	unsigned long clk_strength;
+	unsigned long deemph_eq_strength;
+#endif
 };
 
 struct dsi_phy_hw;
@@ -393,6 +397,15 @@ struct dsi_phy_hw_ops {
 	 * @prepare:	  specify if PLL needs to be turned on or off.
 	 */
 	int (*pll_toggle[MSM_DISP_OP_MAX])(void *pll, bool prepare);
+#ifdef MI_DISPLAY_MODIFY
+	/**
+	 * get_phy_timing() - Get PHY timing
+	 * @phy: Pointer to DSI PHY hardware object.
+	 * @timing: Pointer to PHY timing array
+	 */
+	void (*get_phy_timing[MSM_DISP_OP_MAX])(struct dsi_phy_hw *phy,
+		u32 *phy_timming, u32 size);
+#endif
 
 };
 

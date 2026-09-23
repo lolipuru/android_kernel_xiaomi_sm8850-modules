@@ -10,6 +10,9 @@
 #include "sde_core_irq.h"
 #include "sde_formats.h"
 #include "sde_trace.h"
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_sde_encoder.h"
+#endif
 #include "sde_cesta.h"
 
 #define SDE_DEBUG_CMDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
@@ -483,9 +486,19 @@ static void _sde_encoder_phys_signal_frame_done(struct sde_encoder_phys *phys_en
 static void sde_encoder_phys_cmd_ctl_done_irq(void *arg, int irq_idx)
 {
 	struct sde_encoder_phys *phys_enc = arg;
+#ifdef MI_DISPLAY_MODIFY
+	int crtc_id = 0;
+	struct drm_crtc *crtc = NULL;
+#endif
 
 	if (!phys_enc)
 		return;
+#ifdef MI_DISPLAY_MODIFY
+	if(phys_enc->parent)
+		crtc = phys_enc->parent->crtc;
+	if(crtc)
+		crtc_id = crtc->base.id;
+#endif
 
 	SDE_ATRACE_BEGIN("ctl_done_irq");
 
@@ -546,6 +559,10 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 	struct sde_cesta_client *cesta_client;
 	unsigned long lock_flags;
 	u32 fence_ready = 0;
+#ifdef MI_DISPLAY_MODIFY
+	int crtc_id = 0;
+	struct drm_crtc *crtc = NULL;
+#endif
 	enum msm_disp_op disp_op;
 
 	if (!phys_enc || !phys_enc->parent || !phys_enc->hw_pp || !phys_enc->hw_intf)
@@ -554,6 +571,14 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 	ctl = phys_enc->hw_ctl;
 	if (!ctl)
 		return;
+
+#ifdef MI_DISPLAY_MODIFY
+	if(phys_enc->parent)
+		crtc = phys_enc->parent->crtc;
+	if(crtc)
+		crtc_id = crtc->base.id;
+	mi_sde_encoder_save_vsync_info(phys_enc);
+#endif
 
 	disp_op = sde_encoder_get_disp_op(phys_enc->parent);
 	SDE_ATRACE_BEGIN("rd_ptr_irq");
@@ -602,9 +627,19 @@ static void sde_encoder_phys_cmd_wr_ptr_irq(void *arg, int irq_idx)
 	struct sde_hw_ctl *ctl;
 	u32 event = 0, qsync_mode = 0;
 	struct sde_hw_pp_vsync_info info[MAX_CHANNELS_PER_ENC] = {{0}};
+#ifdef MI_DISPLAY_MODIFY
+	int crtc_id = 0;
+	struct drm_crtc *crtc = NULL;
+#endif
 
 	if (!phys_enc || !phys_enc->hw_ctl)
 		return;
+#ifdef MI_DISPLAY_MODIFY
+	if(phys_enc->parent)
+		crtc = phys_enc->parent->crtc;
+	if(crtc)
+		crtc_id = crtc->base.id;
+#endif
 
 	SDE_ATRACE_BEGIN("wr_ptr_irq");
 	ctl = phys_enc->hw_ctl;
@@ -867,6 +902,10 @@ static void sde_encoder_phys_cmd_mode_set(
 static int _sde_encoder_phys_cmd_handle_framedone_timeout(
 		struct sde_encoder_phys *phys_enc)
 {
+#ifdef MI_DISPLAY_MODIFY
+	struct sde_connector *sde_conn = NULL;
+	struct dsi_display *display = NULL;
+#endif
 	struct sde_encoder_phys_cmd *cmd_enc =
 			to_sde_encoder_phys_cmd(phys_enc);
 	bool recovery_events = sde_encoder_recovery_events_enabled(
@@ -888,6 +927,16 @@ static int _sde_encoder_phys_cmd_handle_framedone_timeout(
 
 	cmd_enc->frame_tx_timeout_report_cnt++;
 	pending_kickoff_cnt = atomic_read(&phys_enc->pending_kickoff_cnt) + 1;
+
+#ifdef MI_DISPLAY_MODIFY
+	sde_conn = to_sde_connector(phys_enc->connector);
+	if (sde_encoder_is_dsi_display(phys_enc->parent)) {
+		display = (struct dsi_display *)sde_conn->display;
+		if (display) {
+			SDE_ERROR("[%s] pingpong timeout!\n", display->name);
+		}
+	}
+#endif
 
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
 			cmd_enc->frame_tx_timeout_report_cnt,
@@ -1479,6 +1528,9 @@ static void sde_encoder_phys_cmd_tearcheck_config(struct sde_encoder_phys *phys_
 	struct drm_display_mode *mode;
 	bool tc_enable = true;
 	u32 vsync_hz, threshold, cfg_height, start_pos, qsync_mode;
+#ifdef MI_DISPLAY_MODIFY
+	u32 avr_step_threshold_lines = 0;
+#endif
 	bool panel_dead = false;
 	int vrefresh;
 	struct msm_drm_private *priv;
@@ -1539,6 +1591,19 @@ static void sde_encoder_phys_cmd_tearcheck_config(struct sde_encoder_phys *phys_
 		return;
 	}
 
+#ifdef MI_DISPLAY_MODIFY
+	if (sde_enc->mode_info.avr_step_fps) {
+		ktime_t default_time_ns, default_line_time_ns, avr_step_in_ns;
+		default_time_ns = mult_frac(NSEC_PER_SEC, 1, vrefresh);
+		default_line_time_ns = mult_frac(1, default_time_ns, mode->vtotal);
+		avr_step_in_ns = mult_frac(NSEC_PER_SEC, 1, sde_enc->mode_info.avr_step_fps);
+		avr_step_in_ns = avr_step_in_ns*11/10;
+		avr_step_threshold_lines = mult_frac(1, avr_step_in_ns, default_line_time_ns);
+		SDE_DEBUG("sde_encoder_phys_cmd_tearcheck_config, \
+			avoid too much rd_ptr_irq, avr_step_threshold_lines %u\n",
+				avr_step_threshold_lines);
+	}
+#endif
 	tc_cfg.vsync_count = vsync_hz / (mode->vtotal * vrefresh);
 
 	/* enable external TE after kickoff to avoid premature autorefresh */
@@ -1552,6 +1617,9 @@ static void sde_encoder_phys_cmd_tearcheck_config(struct sde_encoder_phys *phys_
 	tc_cfg.vsync_init_val = mode->vdisplay;
 	tc_cfg.sync_threshold_continue = DEFAULT_TEARCHECK_SYNC_THRESH_CONTINUE;
 	tc_cfg.rd_ptr_irq = mode->vdisplay + 1;
+#ifdef MI_DISPLAY_MODIFY
+	tc_cfg.rd_ptr_irq += avr_step_threshold_lines;
+#endif
 	tc_cfg.wr_ptr_irq = 1;
 	tc_cfg.detect_ctrl = tc_cfg.vsync_init_val + TEAR_DETECT_CTRL;
 	cmd_enc->qsync_threshold_lines = tc_cfg.sync_threshold_start;

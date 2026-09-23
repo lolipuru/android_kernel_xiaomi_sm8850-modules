@@ -23,11 +23,20 @@
 #include "dsi_parser.h"
 #include "msm_drv.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_dsi_panel.h"
+#endif
+
 #define MAX_BL_LEVEL 4096
 #define MAX_BL_SCALE_LEVEL 1024
 #define MAX_SV_BL_SCALE_LEVEL 65535
 #define SV_BL_SCALE_CAP (MAX_SV_BL_SCALE_LEVEL * 4)
 #define DSI_CMD_PPS_SIZE 135
+
+#ifdef MI_DISPLAY_MODIFY
+#define PEAK_HDR_BL_LEVEL 3901
+#define DIM_PARAM 4094
+#endif
 
 #define DSI_CMD_PPS_HDR_SIZE 7
 
@@ -145,6 +154,10 @@ struct dsi_backlight_config {
 	u32 bl_min_level;
 	u32 bl_max_level;
 	u32 brightness_max_level;
+#ifdef MI_DISPLAY_MODIFY
+	u32 bl_normal_max;
+	u32 brightness_init_level;
+#endif
 	/* current brightness value */
 	u32 brightness;
 	u32 bl_level;
@@ -182,6 +195,7 @@ struct dsi_panel_reset_config {
 	u32 count;
 
 	int reset_gpio;
+	int pmic_reset_gpio;
 	int disp_en_gpio;
 	int oled_en_gpio;
 	int lcd_mode_sel_gpio;
@@ -200,8 +214,16 @@ enum esd_check_status_mode {
 
 struct drm_panel_esd_config {
 	bool esd_enabled;
+#ifdef MI_DISPLAY_MODIFY
+	bool esd_aod_enabled;
+	u32 esd_status_interval;
+#endif
 
 	enum esd_check_status_mode status_mode;
+#ifdef MI_DISPLAY_MODIFY
+	struct dsi_panel_cmd_set offset_cmd;
+	struct dsi_panel_cmd_set after_cmd;
+#endif
 	struct dsi_panel_cmd_set status_cmd;
 	u32 *status_cmds_rlen;
 	u32 *status_valid_params;
@@ -281,6 +303,11 @@ struct dsi_panel {
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_panel_build_id_config id_config;
+	struct drm_panel_wp_config wp_config;
+	struct drm_panel_cell_id_config cell_id_config;
+#endif
 
 	struct dsi_parser_utils utils;
 
@@ -324,6 +351,12 @@ struct dsi_panel {
 	bool post_power_enable_status;
 
 	struct dsi_panel_ops panel_ops;
+#ifdef MI_DISPLAY_MODIFY
+	u32 disp_id;
+	struct mi_dsi_panel_cfg mi_cfg;
+	bool qsync_enable;
+	bool pending_backlight_by_qsync;
+#endif
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -490,4 +523,13 @@ int dsi_panel_power_on(struct dsi_panel *panel, bool is_cont_splash);
 int dsi_panel_power_off(struct dsi_panel *panel);
 
 int dsi_panel_pinctrl_toggle_te_function(struct dsi_panel *panel);
+#ifdef MI_DISPLAY_MODIFY
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type, bool do_peripheral_flush);
+int dsi_panel_update_backlight(struct dsi_panel *panel, u32 bl_lvl);
+
+int dsi_panel_parse_cmd_sets_sub(struct dsi_panel_cmd_set *cmd,
+					enum dsi_cmd_set_type type,
+					struct dsi_parser_utils *utils);
+#endif
 #endif /* _DSI_PANEL_H_ */

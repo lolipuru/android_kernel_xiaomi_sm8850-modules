@@ -37,6 +37,7 @@ def define_canoe():
                     "CONFIG_SMMU_PROXY",
                     "CONFIG_DSI_EXTENDED_MODES",
                     "CONFIG_MSM_SDE_ROTATOR",
-                    "CONFIG_MSM_SDE_ROTATOR_EVTLOG_DEBUG"
+                    "CONFIG_MSM_SDE_ROTATOR_EVTLOG_DEBUG",
+                    "MI_DISPLAY_MODIFY",
                 ],
             )

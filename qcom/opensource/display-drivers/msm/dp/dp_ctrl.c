@@ -738,6 +738,9 @@ static int dp_ctrl_link_setup(struct dp_ctrl_private *ctrl, bool shallow)
 	u32 link_train_max_retries = 100;
 	struct dp_catalog_ctrl *catalog;
 	struct dp_link_params *link_params;
+#ifdef MI_DISPLAY_MODIFY
+	int retry = 3;
+#endif
 
 	catalog = ctrl->catalog;
 	link_params = &ctrl->link->link_params;
@@ -779,6 +782,10 @@ static int dp_ctrl_link_setup(struct dp_ctrl_private *ctrl, bool shallow)
 		rc = dp_ctrl_setup_main_link(ctrl);
 		if (!rc)
 			break;
+#ifdef MI_DISPLAY_MODIFY
+		if ((rc == -EINVAL || rc == -ETIMEDOUT || rc == -EIO) && (retry-- < 0))
+			break;
+#endif
 
 		if (!link_train_max_retries || atomic_read(&ctrl->aborted)) {
 			dp_ctrl_disable_link_clock(ctrl);

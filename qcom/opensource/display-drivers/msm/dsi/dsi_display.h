@@ -1039,6 +1039,14 @@ int dsi_display_phy_pll_toggle(void *priv, bool enable);
  */
 bool is_skip_op_required(struct dsi_display *display);
 
+#ifdef MI_DISPLAY_MODIFY
+const char *mi_dsi_display_get_cmdline_panel_info(struct dsi_display *display);
+void mi_dsi_display_delete_build_id_from_cmdline(struct dsi_panel *panel,char *panel_info);
+int dsi_display_cmd_rx(struct dsi_display *display, struct dsi_cmd_desc *cmd);
+int dsi_display_cmd_rx_panel_locked(struct dsi_display *display, struct dsi_cmd_desc *cmd);
+int dsi_display_ctrl_get_host_init_state(struct dsi_display *dsi_display, bool *state);
+#endif
+
 /**
  * dsi_display_set_clk_state() - set clk state request from MDP
  * @display:     Handle to display

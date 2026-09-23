@@ -17,6 +17,19 @@
 #include "msm_drv.h"
 #include "sde_encoder.h"
 
+#ifdef MI_DISPLAY_MODIFY
+#include <drm/mi_disp.h>
+
+#include "mi_disp_print.h"
+#include "mi_dsi_display.h"
+#include "mi_panel_id.h"
+#include "mi_sde_connector.h"
+#endif
+
+#ifdef CONFIG_VIS_DISPLAY
+#include "vis_display.h"
+#endif
+
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
 
@@ -149,6 +162,16 @@ void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 	snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%d%s",
 			drm_mode->hdisplay, drm_mode->vdisplay,
 			drm_mode_vrefresh(drm_mode), panel_caps);
+#ifdef MI_DISPLAY_MODIFY
+	if (dsi_mode->mi_timing.ddic_mode != DDIC_MODE_NORMAL) {
+		snprintf(drm_mode->name + strlen(drm_mode->name),
+				DRM_DISPLAY_MODE_LEN - strlen(drm_mode->name),
+				"@%dx%d%s",
+				dsi_mode->mi_timing.sf_refresh_rate,
+				dsi_mode->mi_timing.ddic_min_refresh_rate,
+				get_ddic_mode_name(dsi_mode->mi_timing.ddic_mode));
+	}
+#endif
 }
 
 static void dsi_convert_to_msm_mode(const struct dsi_display_mode *dsi_mode,
@@ -260,6 +283,9 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	if (rc)
 		DSI_ERR("Continuous splash pipeline cleanup failed, rc=%d\n",
 									rc);
+#ifdef MI_DISPLAY_MODIFY
+	sde_connector_update_panel_dead(display->drm_conn, !display->panel->panel_initialized);
+#endif
 }
 
 static void dsi_bridge_enable(struct drm_bridge *bridge)
@@ -297,6 +323,13 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 				true);
 		}
 	}
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, true);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display enable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -313,6 +346,13 @@ static void dsi_bridge_disable(struct drm_bridge *bridge)
 	display = c_bridge->display;
 
 	display->enabled = false;
+#ifdef MI_DISPLAY_MODIFY
+	rc = mi_dsi_display_esd_irq_ctrl(c_bridge->display, false);
+	if (rc) {
+		DISP_ERROR("[%d] DSI display disable esd irq failed, rc=%d\n",
+				c_bridge->id, rc);
+	}
+#endif
 
 	if (display->drm_conn) {
 		conn_state = to_sde_connector_state(display->drm_conn->state);
@@ -413,6 +453,9 @@ static void dsi_bridge_mode_set(struct drm_bridge *bridge,
 		DSI_ERR("invalid connector state\n");
 		return;
 	}
+#ifdef MI_DISPLAY_MODIFY
+	mi_sde_connector_state_get_mi_mode_info(&conn_state->base, &(c_bridge->dsi_mode.mi_timing));
+#endif
 
 	msm_parse_mode_priv_info(&conn_state->msm_mode,
 					&(c_bridge->dsi_mode));
@@ -576,6 +619,9 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 	dsi_mode.dsi_mode_flags = panel_dsi_mode->dsi_mode_flags;
 	dsi_mode.panel_mode_caps = panel_dsi_mode->panel_mode_caps;
 	dsi_mode.pixel_format_caps = panel_dsi_mode->pixel_format_caps;
+#ifdef MI_DISPLAY_MODIFY
+	memcpy(&dsi_mode.mi_timing, &panel_dsi_mode->mi_timing, sizeof(panel_dsi_mode->mi_timing));
+#endif
 	dsi_mode.timing.dsc_enabled = dsi_mode.priv_info->dsc_enabled;
 	dsi_mode.timing.dsc = &dsi_mode.priv_info->dsc;
 
@@ -776,6 +822,10 @@ int dsi_conn_get_mode_info(struct drm_connector *connector,
 
 	memcpy(mode_info->allowed_mode_switches, dsi_mode->priv_info->allowed_mode_switch,
 			sizeof(mode_info->allowed_mode_switches));
+#ifdef MI_DISPLAY_MODIFY
+	memcpy(&mode_info->mi_mode_info, &dsi_mode->mi_timing,
+				sizeof(dsi_mode->mi_timing));
+#endif
 
 	return 0;
 }
@@ -1550,6 +1600,12 @@ int dsi_conn_post_kickoff(struct drm_connector *connector,
 		display_for_each_ctrl(i, display)
 			dsi_ctrl_setup_avr(display->ctrl[i].ctrl, enable);
 	}
+
+#ifdef CONFIG_VIS_DISPLAY
+	if (is_mi_dev_support_nova()) {
+		mi_sde_connector_send_emv_queue_work(connector);
+	}
+#endif
 
 	return 0;
 }

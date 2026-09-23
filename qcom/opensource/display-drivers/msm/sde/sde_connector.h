@@ -18,11 +18,15 @@
 #include "sde_kms.h"
 #include "sde_fence.h"
 #include "dsi_display.h"
+#ifdef MI_DISPLAY_MODIFY
+#include "mi_sde_connector.h"
+#endif
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
 #define MAX_CMD_RECEIVE_SIZE       256
 #define DNSC_BLUR_MAX_COUNT	1
+#define EM_SWITCH_ELAPSED 850000
 
 struct sde_connector;
 struct sde_connector_state;
@@ -831,6 +835,10 @@ struct sde_connector {
 	int dpms_mode;
 	int lp_mode;
 	int last_panel_power_mode;
+#ifdef MI_DISPLAY_MODIFY
+	int max_esd_check_power_mode;
+	bool should_drm_set_backlight;
+#endif
 	struct device *sysfs_dev;
 
 	struct msm_property_info property_info;
@@ -841,6 +849,10 @@ struct sde_connector {
 	struct drm_property_blob *blob_dither;
 	struct drm_property_blob *blob_mode_info;
 	struct drm_property_blob *blob_panel_id;
+#ifdef MI_DISPLAY_MODIFY
+	u64 prev_time_ns;
+	struct drm_property_blob *blob_mi_mode_info;
+#endif
 
 	struct sde_connector_evt event_table[SDE_CONN_EVENT_COUNT];
 	spinlock_t event_lock;
@@ -998,6 +1010,9 @@ struct sde_connector_state {
 	struct msm_roi_list rois;
 	struct drm_property_blob *property_blobs[CONNECTOR_PROP_BLOBCOUNT];
 	struct msm_mode_info mode_info;
+#ifdef MI_DISPLAY_MODIFY
+	struct msm_mode_info old_mode_info;
+#endif
 	struct drm_msm_ext_hdr_metadata hdr_meta;
 	struct sde_connector_dyn_hdr_metadata dyn_hdr_meta;
 	struct msm_display_mode msm_mode;
@@ -1046,6 +1061,22 @@ struct sde_connector_state {
  */
 #define sde_connector_get_out_fb(S) \
 	((S) ? to_sde_connector_state((S))->out_fb : 0)
+
+#ifdef MI_DISPLAY_MODIFY
+/**
+ * sde_connector_update_panel_dead - update connector panel_dead property
+ * @conn: pointer to drm connector
+ * @is_dead: bool to set panel_dead property
+ */
+void sde_connector_update_panel_dead(struct drm_connector *conn, bool is_dead);
+
+/*
+ * _sde_connector_report_panel_dead - report panel dead notification
+ * @sde_conn:    Pointer to sde connector structure
+ * @skip_pre_kickoff: boolean to skip pre kickoff
+ */
+void _sde_connector_report_panel_dead(struct sde_connector *conn, bool skip_pre_kickoff);
+#endif
 
 /**
  * sde_connector_get_kms - helper to get sde_kms from connector

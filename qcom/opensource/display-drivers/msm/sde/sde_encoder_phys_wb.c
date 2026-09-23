@@ -58,6 +58,22 @@ static struct sde_csc_cfg sde_encoder_phys_wb_rgb2yuv_601l = {
 	{ 0x040, 0x3ac, 0x040, 0x3c0, 0x040, 0x3c0 },
 };
 
+#ifdef MI_DISPLAY_MODIFY
+/**
+ * sde_rgb2yuv_bt2020l - rgb to yuv color space conversion matrix
+ *
+ */
+static struct sde_csc_cfg sde_encoder_phys_wb_rgb2yuv_bt2020l = {
+    {TO_S15D16(0x0073), TO_S15D16(0x0129), TO_S15D16(0x0019), TO_S15D16(0x1fc1),
+     TO_S15D16(0x1f5e), TO_S15D16(0x00e0), TO_S15D16(0x00e0), TO_S15D16(0x1f31),
+     TO_S15D16(0x1fed)},
+    {0x00, 0x00, 0x00},
+    {0x0040, 0x0200, 0x0200},
+    {0x000, 0x3ff, 0x000, 0x3ff, 0x000, 0x3ff},
+    {0x040, 0x3ac, 0x040, 0x3c0, 0x040, 0x3c0},
+};
+#endif
+
 /**
  * sde_encoder_phys_wb_is_master - report wb always as master encoder
  */
@@ -89,6 +105,13 @@ static void sde_encoder_phys_wb_set_ot_limit(struct sde_encoder_phys *phys_enc)
 	struct sde_vbif_set_ot_params ot_params;
 	enum sde_wb_usage_type usage_type;
 
+#ifdef MI_DISPLAY_MODIFY
+	if (!phys_enc || !phys_enc->connector) {
+		SDE_ERROR("invalid encoder or its connector.\n");
+		return;
+	}
+#endif
+
 	conn_state = phys_enc->connector->state;
 	usage_type = sde_connector_get_property(conn_state, CONNECTOR_PROP_WB_USAGE_TYPE);
 
@@ -119,10 +142,17 @@ static void sde_encoder_phys_wb_set_qos_remap(struct sde_encoder_phys *phys_enc)
 	struct sde_vbif_set_qos_params qos_params;
 	enum sde_wb_usage_type usage_type;
 
+#ifdef MI_DISPLAY_MODIFY
+	if (!phys_enc || !phys_enc->connector || !phys_enc->parent || !phys_enc->parent->crtc) {
+		SDE_ERROR("invalid arguments\n");
+		return;
+	}
+#else
 	if (!phys_enc || !phys_enc->parent || !phys_enc->parent->crtc) {
 		SDE_ERROR("invalid arguments\n");
 		return;
 	}
+#endif
 
 	wb_enc = to_sde_encoder_phys_wb(phys_enc);
 	if (!wb_enc->crtc) {
@@ -177,10 +207,17 @@ static void sde_encoder_phys_wb_set_qos(struct sde_encoder_phys *phys_enc)
 	enum sde_wb_usage_type usage_type;
 	enum msm_disp_op disp_op;
 
+#ifdef MI_DISPLAY_MODIFY
+	if (!phys_enc || !phys_enc->connector || !phys_enc->sde_kms || !phys_enc->sde_kms->catalog) {
+		SDE_ERROR("invalid parameter(s)\n");
+		return;
+	}
+#else
 	if (!phys_enc || !phys_enc->sde_kms || !phys_enc->sde_kms->catalog) {
 		SDE_ERROR("invalid parameter(s)\n");
 		return;
 	}
+#endif
 
 	disp_op = sde_encoder_get_disp_op(phys_enc->parent);
 	wb_enc = to_sde_encoder_phys_wb(phys_enc);
@@ -259,9 +296,21 @@ void sde_encoder_phys_setup_cdm(struct sde_encoder_phys *phys_enc, struct drm_fr
 	int i;
 	size_t csc_size = 0;
 	enum msm_disp_op disp_op;
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_connector_state *conn_state;
+	enum sde_wb_usage_type usage_type;
+	enum sde_wcm_mode wcm_mode;
 
+	if (!phys_enc || !phys_enc->connector || !format)
+		return;
+
+	conn_state = phys_enc->connector->state;
+	usage_type = sde_connector_get_property(conn_state, CONNECTOR_PROP_WB_USAGE_TYPE);
+	wcm_mode = sde_connector_get_property(conn_state, CONNECTOR_PROP_WCM_MODE);
+#else
 	if (!phys_enc || !format)
 		return;
+#endif
 
 	disp_op = sde_encoder_get_disp_op(phys_enc->parent);
 	wb_enc = to_sde_encoder_phys_wb(phys_enc);
@@ -344,8 +393,18 @@ void sde_encoder_phys_setup_cdm(struct sde_encoder_phys *phys_enc, struct drm_fr
 			ret = hw_cdm->ops.setup_csc_data[disp_op](hw_cdm,
 					&wb_csc_cfg, disp_op);
 		} else {
+#ifdef MI_DISPLAY_MODIFY
+			if (usage_type == WB_USAGE_WFD && wcm_mode == WCM_ENABLE) {
+				ret = hw_cdm->ops.setup_csc_data[disp_op](
+					hw_cdm, &sde_encoder_phys_wb_rgb2yuv_bt2020l, disp_op);
+			} else {
+				ret = hw_cdm->ops.setup_csc_data[disp_op](
+					hw_cdm, &sde_encoder_phys_wb_rgb2yuv_601l, disp_op);
+			}
+#else
 			ret = hw_cdm->ops.setup_csc_data[disp_op](hw_cdm,
 					&sde_encoder_phys_wb_rgb2yuv_601l, disp_op);
+#endif
 		}
 
 		if (ret < 0) {
@@ -796,6 +855,12 @@ static void _sde_encoder_phys_wb_setup_cwb(struct sde_encoder_phys *phys_enc, bo
 				DRMID(phys_enc->parent), WBID(wb_enc));
 		return;
 	}
+#ifdef MI_DISPLAY_MODIFY
+	if (!crtc) {
+		SDE_ERROR("invalid crtc\n");
+		return;
+	}
+#endif
 
 	if (crtc->num_mixers > MAX_CWB_PER_CTL_V1) {
 		SDE_ERROR("[enc:%d wb:%d] %d LM %d CWB case not supported\n",
@@ -836,6 +901,12 @@ static void _sde_encoder_phys_wb_setup_ctl(struct sde_encoder_phys *phys_enc,
 	hw_cdm = phys_enc->hw_cdm;
 	hw_dnsc_blur = phys_enc->hw_dnsc_blur;
 	ctl = phys_enc->hw_ctl;
+#ifdef MI_DISPLAY_MODIFY
+	if (!phys_enc->hw_ctl) {
+		SDE_ERROR("invalid ctl\n");
+		return;
+	}
+#endif
 
 	need_merge = phys_enc->quad_cwb_roi ? true :
 			!(_sde_encoder_is_single_lm_partial_update(wb_enc));
@@ -1508,7 +1579,6 @@ static void _sde_encoder_phys_wb_setup_sys_cache(struct sde_encoder_phys *phys_e
 {
 	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys_enc);
 	struct sde_wb_device *wb_dev = wb_enc->wb_dev;
-	struct drm_connector_state *state = wb_dev->connector->state;
 	struct sde_hw_wb *hw_wb = wb_enc->hw_wb;
 	struct sde_crtc *sde_crtc = to_sde_crtc(wb_enc->crtc);
 	struct sde_sc_cfg *sc_cfg;
@@ -1516,6 +1586,16 @@ static void _sde_encoder_phys_wb_setup_sys_cache(struct sde_encoder_phys *phys_e
 	u32 cache_enable, cache_flag, cache_rd_type, cache_wr_type;
 	int i;
 	enum msm_disp_op disp_op = sde_encoder_get_disp_op(phys_enc->parent);
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_connector_state *state = NULL;
+	if (!wb_dev->connector || !sde_crtc) {
+		SDE_ERROR("invalid connector or crtc on wb\n");
+		return;
+	}
+	state = wb_dev->connector->state;
+#else
+	struct drm_connector_state *state = wb_dev->connector->state;
+#endif
 
 	if (!fb) {
 		SDE_ERROR("invalid fb on wb %d\n", WBID(wb_enc));
@@ -1876,8 +1956,13 @@ static void _sde_encoder_phys_wb_setup_dnsc_blur(struct sde_encoder_phys *phys_e
 	bool enable;
 	enum msm_disp_op disp_op = sde_encoder_get_disp_op(phys_enc->parent);
 
+#ifdef MI_DISPLAY_MODIFY
+	if (!sde_kms->catalog->dnsc_blur_count || !hw_pp || !wb_dev->connector)
+		return;
+#else
 	if (!sde_kms->catalog->dnsc_blur_count || !hw_pp)
 		return;
+#endif
 
 	sde_conn = to_sde_connector(wb_dev->connector);
 	sde_conn_state = to_sde_connector_state(wb_dev->connector->state);
@@ -1929,10 +2014,19 @@ static void _sde_encoder_phys_wb_setup_prog_line(struct sde_encoder_phys *phys_e
 {
 	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys_enc);
 	struct sde_wb_device *wb_dev = wb_enc->wb_dev;
-	struct drm_connector_state *state = wb_dev->connector->state;
 	struct sde_hw_wb *hw_wb = wb_enc->hw_wb;
 	u32 prog_line;
 	enum msm_disp_op disp_op = sde_encoder_get_disp_op(phys_enc->parent);
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_connector_state *state = NULL;
+	if (!wb_dev->connector) {
+		SDE_ERROR("invalid connector\n");
+		return;
+	}
+	state = wb_dev->connector->state;
+#else
+	struct drm_connector_state *state = wb_dev->connector->state;
+#endif
 
 	if (phys_enc->in_clone_mode || !hw_wb->ops.set_prog_line_count[disp_op])
 		return;
@@ -1953,11 +2047,23 @@ static void sde_encoder_phys_wb_setup(struct sde_encoder_phys *phys_enc)
 {
 	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys_enc);
 	struct drm_display_mode mode = phys_enc->cached_mode;
-	struct drm_connector_state *conn_state = phys_enc->connector->state;
-	struct drm_crtc_state *crtc_state = wb_enc->crtc->state;
 	struct drm_framebuffer *fb;
 	struct sde_rect *wb_roi = &wb_enc->wb_roi;
 	u32 out_width = 0, out_height = 0, num_lm;
+#ifdef MI_DISPLAY_MODIFY
+	struct drm_connector_state *conn_state = NULL;
+	struct drm_crtc_state *crtc_state = NULL;
+
+	if (!phys_enc->connector || !wb_enc->crtc) {
+		SDE_ERROR("invalid connector or crtc\n");
+		return;
+	}
+	conn_state = phys_enc->connector->state;
+	crtc_state = wb_enc->crtc->state;
+#else
+	struct drm_connector_state *conn_state = phys_enc->connector->state;
+	struct drm_crtc_state *crtc_state = wb_enc->crtc->state;
+#endif
 
 	SDE_DEBUG("[enc:%d wb:%d] mode_set:\"%s\",%d,%d]\n", DRMID(phys_enc->parent),
 			WBID(wb_enc), mode.name, mode.hdisplay, mode.vdisplay);

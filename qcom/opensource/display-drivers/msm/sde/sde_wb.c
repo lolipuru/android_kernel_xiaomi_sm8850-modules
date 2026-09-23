@@ -14,6 +14,9 @@
 #include "sde_kms.h"
 #include "sde_wb.h"
 #include "sde_formats.h"
+#ifdef MI_DISPLAY_MODIFY
+#include "sde_trace.h"
+#endif
 
 /* maximum display mode resolution if not available from catalog */
 #define SDE_WB_MODE_MAX_WIDTH	5120
@@ -690,6 +693,11 @@ int sde_wb_connector_post_init(struct drm_connector *connector, void *display)
 		{WB_ROT_JOB2, "wb_rot_job2"},
 	};
 
+	static const struct drm_prop_enum_list e_wcm_mode[] = {
+		{WCM_DISABLE, "wcm_disable"},
+		{WCM_ENABLE, "wcm_enable"},
+	};
+
 	if (!connector || !display || !wb_dev->wb_cfg || !wb_dev->drm_dev->dev_private) {
 		SDE_ERROR("invalid params\n");
 		return -EINVAL;
@@ -753,6 +761,10 @@ int sde_wb_connector_post_init(struct drm_connector *connector, void *display)
 	msm_property_install_enum(&c_conn->property_info, "wb_usage_type",
 			0x0, 0, e_wb_usage_type, ARRAY_SIZE(e_wb_usage_type),
 			0, CONNECTOR_PROP_WB_USAGE_TYPE);
+
+	msm_property_install_enum(&c_conn->property_info, "wcm_mode",
+			0x0, 0, e_wcm_mode, ARRAY_SIZE(e_wcm_mode),
+			0, CONNECTOR_PROP_WCM_MODE);
 
 	msm_property_install_blob(&c_conn->property_info, "wb_csc_config",
 			DRM_MODE_PROP_BLOB, CONNECTOR_PROP_WB_CSC_CONFIG);
@@ -860,6 +872,10 @@ int sde_wb_config(struct drm_device *drm_dev, void *data,
 		return -EINVAL;
 	}
 
+#ifdef MI_DISPLAY_MODIFY
+	SDE_ATRACE_BEGIN("sde_wb_config");
+#endif
+
 	SDE_DEBUG("\n");
 
 	flags = config->flags;
@@ -900,6 +916,9 @@ int sde_wb_config(struct drm_device *drm_dev, void *data,
 	mutex_unlock(&wb_dev->wb_lock);
 	drm_helper_hpd_irq_event(drm_dev);
 fail:
+#ifdef MI_DISPLAY_MODIFY
+	SDE_ATRACE_END("sde_wb_config");
+#endif
 	return rc;
 }
 
