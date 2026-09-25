@@ -2466,7 +2466,7 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
     return 0;
 }
 
-int touch_mode[DATA_MODE_45][GET_MODE_VALUE_NUM];
+int touch_mode[DATA_MODE_45][VALUE_TYPE_SIZE];
 
 int fts_charger_on(struct fts_ts_data *data, int state)
 {
@@ -3312,7 +3312,7 @@ void fts_set_cur_value(int mode_input, int *value_input)
 		return;
 	}
 
-	if (mode == DATA_MODE_201) {
+	if (mode == DATA_MODE_53) {
 		fts_htc_enable_empty_int(value != 0);
 		return;
 	}
@@ -3409,12 +3409,12 @@ void fts_get_mode_value(common_data_t *common_data)
 		return;
 
 	mode = common_data->mode;
-	value_type = common_data->val;
+	value_type = common_data->data_buf[0];
 
-	if (mode < DATA_MODE_45 && value_type < GET_MODE_VALUE_NUM) {
-		common_data->val = touch_mode[mode][value_type];
+	if (mode < DATA_MODE_45 && value_type < VALUE_TYPE_SIZE) {
+		common_data->data_buf[0] = touch_mode[mode][value_type];
 		if (debug_log_level >= 3)
-			FTS_INFO("mode:%d, value_type:%d, value:%d", mode, value_type, common_data->val);
+			FTS_INFO("mode:%d, value_type:%d, value:%d", mode, value_type, common_data->data_buf[0]);
 	} else {
 		if (debug_log_level)
 			FTS_ERROR("mode:%d don't support", mode);
@@ -3431,14 +3431,14 @@ void fts_get_mode_all(common_data_t *common_data)
 	mode = common_data->mode;
 
 	if (mode < DATA_MODE_45) {
-		common_data->val = touch_mode[mode][GET_CUR_VALUE];
-		common_data->val1 = touch_mode[mode][GET_DEF_VALUE];
-		common_data->val2 = touch_mode[mode][GET_MIN_VALUE];
-		common_data->val3 = touch_mode[mode][GET_MAX_VALUE];
+		common_data->data_buf[0] = touch_mode[mode][GET_CUR_VALUE];
+		common_data->data_buf[1] = touch_mode[mode][GET_DEF_VALUE];
+		common_data->data_buf[2] = touch_mode[mode][GET_MIN_VALUE];
+		common_data->data_buf[3] = touch_mode[mode][GET_MAX_VALUE];
 		if (debug_log_level >= 3)
 			FTS_INFO("mode:%d, cur_val:%d, def_val:%d, min_val:%d, max_val:%d",
-				 mode, common_data->val, common_data->val1,
-				 common_data->val2, common_data->val3);
+				 mode, common_data->data_buf[0], common_data->data_buf[1],
+				 common_data->data_buf[2], common_data->data_buf[3]);
 	} else {
 		if (debug_log_level)
 			FTS_ERROR("mode:%d don't support", mode);

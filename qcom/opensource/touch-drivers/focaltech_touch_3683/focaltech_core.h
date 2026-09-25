@@ -165,8 +165,10 @@
 /*for global*/
 extern struct fts_test *fts_ftest;
 extern hardware_operation_t hardware_operation;
-extern hardware_param_t hardware_param;
-extern int touch_mode[DATA_MODE_45][GET_MODE_VALUE_NUM];
+#ifndef VALUE_TYPE_SIZE
+#define VALUE_TYPE_SIZE 6
+#endif
+extern int touch_mode[DATA_MODE_45][VALUE_TYPE_SIZE];
 /*****************************************************************************
 *  Alternative mode (When something goes wrong, the modules may be able to solve the problem.)
 *****************************************************************************/
