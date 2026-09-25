@@ -4398,8 +4398,8 @@ void fts_init_xiaomi_touchfeature_v3(struct fts_ts_data *ts_data)
 	hardware_operation.touch_vendor_read = fts_touch_vendor_read;
 	hardware_operation.get_touch_ic_buffer = NULL;
 	hardware_operation.touch_doze_analysis = fts_touch_doze_analysis;
-	hardware_operation.touch_log_level_control = fts_log_level_control;
-	hardware_operation.touch_log_level_control_v2 = NULL;
+	hardware_operation.touch_log_level_control = NULL;
+	hardware_operation.touch_log_level_control_v2 = fts_log_level_control;
 	hardware_operation.set_nfc_to_touch_event = NULL;
 	hardware_operation.htc_ic_setModeValue = fts_htc_ic_setModeValue;
 	hardware_operation.htc_ic_getModeValue = fts_htc_ic_getModeValue;
