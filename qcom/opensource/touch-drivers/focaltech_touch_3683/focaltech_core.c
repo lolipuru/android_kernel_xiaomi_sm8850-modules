@@ -2482,7 +2482,7 @@ int fts_charger_on(struct fts_ts_data *data, int state)
 		return -EINVAL;
 
 	if (data->fw_loading == 1) {
-		wait_for_completion_interruptible(&data->fwupg_work.work.entry);
+		cancel_work_sync(&data->fwupg_work);
 	}
 	if (debug_log_level >= 3)
 		FTS_INFO("Set charger state: %s", (state & 1) ? "on" : "off");
@@ -2516,7 +2516,7 @@ int fts_palm_on(struct fts_ts_data *data, int enable)
 		return -EINVAL;
 
 	if (data->fw_loading == 1) {
-		wait_for_completion_interruptible(&data->fwupg_work.work.entry);
+		cancel_work_sync(&data->fwupg_work);
 	}
 	if (debug_log_level >= 3)
 		FTS_INFO("Set palm sensor switch: %d", enable & 1);
@@ -2546,7 +2546,7 @@ int fts_set_thermal_temp(int temp)
 		return -EINVAL;
 
 	if (fts_data->fw_loading == 1) {
-		wait_for_completion_interruptible(&fts_data->fwupg_work.work.entry);
+		cancel_work_sync(&fts_data->fwupg_work);
 	}
 	if (debug_log_level >= 3)
 		FTS_INFO("Set thermal temp: %d", temp);
