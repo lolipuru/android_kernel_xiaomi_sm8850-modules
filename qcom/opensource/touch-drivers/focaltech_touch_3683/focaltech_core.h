@@ -515,6 +515,8 @@ struct fts_ts_data {
 	bool enable_touch_raw;
 	struct tp_frame thp_frame;
 	bool fod_pressed;
+	int palm_sensor_switch;
+	bool weak_doubletap;
 
 #ifdef TOUCH_THP_SUPPORT
 	struct delayed_work thp_signal_work;

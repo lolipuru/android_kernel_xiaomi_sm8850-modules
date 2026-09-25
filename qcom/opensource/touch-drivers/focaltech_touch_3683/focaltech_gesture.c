@@ -361,6 +361,7 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 	}
 
     if (gesture->gesture_id == GESTURE_WEAKDOUBLECLICK && (ts_data->gesture_status & 0x01)) {
+        ts_data->weak_doubletap = true;
         update_weak_doubletap_value(1);
     } 
 	FTS_INFO("gesture_id=%x; DoubleClick:0x24  SingleTap:0x25 WeakDoubleClick:0x50", gesture->gesture_id);

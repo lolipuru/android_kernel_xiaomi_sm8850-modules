@@ -302,11 +302,17 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 			FTS_ERROR("fts_report_rate_recovery failed");
 	}
 	fts_update_touchmode_data(ts_data);
+	if (ts_data->gamemode_enabled)
+		fts_write_reg(0x8E, 1);
 #ifdef FTS_TOUCHSCREEN_FOD
 	if (ts_data->fod_status > 0) {
 		fts_fod_reg_write(FTS_REG_GESTURE_FOD_ON, true);
 	}
 #endif
+	if (!ts_data->tui_enabled && ts_data->palm_sensor_switch)
+		fts_palm_on(ts_data, 1);
+	if (ts_data->weak_doubletap)
+		fts_fod_reg_write(2, true);
 	FTS_FUNC_EXIT();
 }
 
@@ -1586,6 +1592,20 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
         fts_input_report_a(ts_data, events);
 #endif
         mutex_unlock(&ts_data->report_mutex);
+        if (!ts_data->tui_enabled && ts_data->palm_sensor_switch && fts_data) {
+            u8 palm_val = 0;
+            ret = fts_read_reg(0x9B, &palm_val);
+            if (ret >= 0) {
+                if (palm_val == 0 || palm_val == 1) {
+                    update_palm_sensor_value(palm_val);
+                    if (debug_log_level >= 3)
+                        FTS_INFO("update palm data:0x%02X", palm_val);
+                }
+            } else {
+                if (debug_log_level)
+                    FTS_ERROR("read palm data error");
+            }
+        }
         break;
 
     case TOUCH_GESTURE:
@@ -2527,9 +2547,31 @@ int fts_palm_on(struct fts_ts_data *data, int enable)
 
 int fts_palm_sensor_write(int on)
 {
+	int ret = 0;
 	if (!fts_data)
 		return -EINVAL;
-	return fts_palm_on(fts_data, on);
+
+	fts_data->palm_sensor_switch = on;
+
+	if (fts_data->suspended)
+		return 0;
+
+	if (fts_data->tui_enabled)
+		return 0;
+
+	ret = fts_palm_on(fts_data, !!on);
+	if (ret < 0) {
+		if (debug_log_level)
+			FTS_ERROR("fts_palm_on write reg fail");
+	}
+
+	if (fts_data->palm_sensor_switch == 0) {
+		if (debug_log_level >= 3)
+			FTS_INFO("disable palm reg and update palm_status_value for palm_sensor node :0");
+		update_palm_sensor_value(0);
+	}
+
+	return ret;
 }
 
 int fts_set_thermal_temp(int temp)
@@ -3303,6 +3345,7 @@ void fts_set_cur_value(int mode_input, int *value_input)
 	}
 
 	if (mode == DATA_MODE_177) {
+		fts_data->weak_doubletap = (value != 0);
 		update_weak_doubletap_value(value);
 		return;
 	}
@@ -4781,6 +4824,10 @@ static int fts_ts_suspend(struct device *dev)
 			FTS_ERROR("%s fts_fod_reg_write failed\n", __func__);
 	}
 #endif
+	if (ts_data->palm_sensor_switch) {
+		update_palm_sensor_value(0);
+		fts_palm_on(ts_data, 0);
+	}
 	fts_esdcheck_suspend(ts_data);
 #ifdef CONFIG_FACTORY_BUILD
 	ts_data->poweroff_on_sleep = true;
@@ -4848,6 +4895,8 @@ static int fts_ts_resume(struct device *dev)
 	/* enable charger mode */
 	if (ts_data->charger_status)
 		fts_write_reg(FTS_REG_CHARGER_MODE_EN, true);
+	if (ts_data->palm_sensor_switch)
+		fts_palm_on(ts_data, 1);
 	if (ts_data->gesture_support && !ts_data->poweroff_on_sleep)
 		fts_gesture_resume(ts_data);
 	fts_irq_enable();
