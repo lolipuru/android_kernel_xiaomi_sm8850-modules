@@ -3915,6 +3915,14 @@ int fts_ic_fw_version(char *fw_version_buf)
 	}
 }
 
+int focal_get_ic_self_test_mode(void)
+{
+	if (debug_log_level >= 4) {
+		FTS_INFO("ic_in_selftest: %d\n", ic_in_selftest);
+	}
+	return ic_in_selftest;
+}
+
 int fts_ic_self_test(char *type, int *result)
 {
 	int retval = 0;//0 invalid; 1 fail; 2 pass
@@ -4423,7 +4431,7 @@ void fts_init_xiaomi_touchfeature_v3(struct fts_ts_data *ts_data)
 	hardware_operation.ic_self_test = fts_ic_self_test;
 	hardware_operation.ic_data_collect = fts_ic_data_collect;
 	hardware_operation.ic_get_lockdown_info = fts_lockdown_info_read;
-	hardware_operation.ic_get_fw_version = NULL;
+	hardware_operation.ic_get_fw_version = fts_ic_fw_version;
 
 	hardware_operation.set_mode_value = fts_set_cur_value;
 	hardware_operation.get_mode_value = fts_get_mode_value;

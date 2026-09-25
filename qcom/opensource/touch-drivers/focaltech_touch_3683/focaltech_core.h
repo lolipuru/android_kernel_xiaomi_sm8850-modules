@@ -776,6 +776,7 @@ int focal_pre_la_tui_disable(struct fts_ts_data *ts_data);
 int focal_post_la_tui_disable(struct fts_ts_data *ts_data);
 int focal_enable_touch_irq(struct fts_ts_data *ts_data, bool enable);
 int focal_get_irq_num(struct fts_ts_data *ts_data);
+int focal_get_ic_self_test_mode(void);
 
 extern int mi_disp_set_fod_queue_work(u32 fod_btn, bool from_touch);
 extern int update_fod_press_status(int value);
