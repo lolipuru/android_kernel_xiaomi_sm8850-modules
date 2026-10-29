@@ -25,6 +25,9 @@
 #elif IS_REACHABLE(CONFIG_LEDS_QTI_FLASH)
 #include <linux/leds-qti-flash.h>
 #endif
+#if IS_REACHABLE(CONFIG_BACKLIGHT_QCOM_SPMI_WLED)
+#include <linux/leds-qpnp-flash.h>
+#endif
 #include <linux/hrtimer.h>
 
 #include "cam_req_mgr_util.h"
