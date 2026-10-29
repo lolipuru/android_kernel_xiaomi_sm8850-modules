@@ -3558,8 +3558,7 @@ static int __init tfa98xx_i2c_init(void)
 	tfa98xx_cache = kmem_cache_create("tfa98xx_cache", /* Cache name /proc/slabinfo */
 		PAGE_SIZE, /* Structure size, we should fit in single page */
 		0, /* Structure alignment */
-		(SLAB_HWCACHE_ALIGN | SLAB_RECLAIM_ACCOUNT |
-			SLAB_MEM_SPREAD), /* Cache property */
+		(SLAB_HWCACHE_ALIGN | SLAB_RECLAIM_ACCOUNT), /* Cache property */
 		NULL); /* Object constructor */
 	if (!tfa98xx_cache) {
 		pr_err("tfa98xx can't create memory pool\n");
