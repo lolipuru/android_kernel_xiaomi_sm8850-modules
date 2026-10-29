@@ -1715,9 +1715,12 @@ static void qts_ts_suspend(struct qts_data *qts_data)
 	}
 	mutex_lock(&qts_data->transition_lock);
 
-	rc = qts_data->vendor_ops.suspend(qts_data->vendor_data);
-	if (rc)
-		pr_err("suspend failed, rc = %d\n", rc);
+	/* xiaomi focaltech powers itself via its panel notifier, no op (stock) */
+	if (qts_data->vendor_ops.suspend) {
+		rc = qts_data->vendor_ops.suspend(qts_data->vendor_data);
+		if (rc)
+			pr_err("suspend failed, rc = %d\n", rc);
+	}
 
 	qts_data->suspended = true;
 	mutex_unlock(&qts_data->transition_lock);
@@ -1738,9 +1741,11 @@ static void qts_ts_resume(struct qts_data *qts_data)
 
 	mutex_lock(&qts_data->transition_lock);
 
-	rc = qts_data->vendor_ops.resume(qts_data->vendor_data);
-	if (rc)
-		pr_err("resume failed, rc = %d\n", rc);
+	if (qts_data->vendor_ops.resume) {
+		rc = qts_data->vendor_ops.resume(qts_data->vendor_data);
+		if (rc)
+			pr_err("resume failed, rc = %d\n", rc);
+	}
 
 	qts_data->suspended = false;
 	mutex_unlock(&qts_data->transition_lock);
