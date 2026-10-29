@@ -2412,19 +2412,8 @@ static int fts_parse_dt(struct device *dev, struct fts_ts_platform_data *pdata)
     } else
         pdata->avdd_source_reg_name = name;
 
-    ret = of_property_read_string(np, "focaltech,iovdd-name", &name);
-    if (ret < 0) {
-        FTS_ERROR("focaltech,iovdd-name undefined");
-        pdata->iovdd_reg_name = NULL;
-    } else
-        pdata->iovdd_reg_name = name;
-
-    ret = of_property_read_string(np, "focaltech,avdd-name", &name);
-    if (ret < 0) {
-        FTS_ERROR("focaltech,avdd-name undefined");
-        pdata->avdd_reg_name = NULL;
-    } else
-        pdata->avdd_reg_name = name;
+    pdata->iovdd_reg_name = "iovdd";
+    pdata->avdd_reg_name = "avdd";
 
     /* reset, irq gpio info */
     pdata->reset_gpio = of_get_named_gpio(np, "focaltech,reset-gpio", 0);
