@@ -49,8 +49,10 @@ def _combine_target_module_options(enabled_modules, config_options):
 
     return all_options | modules_options
 
-def _define_target_modules(target, variant, registry, modules, product = None, config_options = []):
+def _define_target_modules(target, variant, registry, modules, product = None, config_options = [], arch = None):
+    # %a: SoC target other techpacks are built for (device targets like myron reuse canoe techpacks)
     dep_formatter = lambda s: s.replace("%t", target) \
+        .replace("%a", "{}_{}".format(arch or target, variant)) \
         .replace("%v", variant) \
         .replace("%p", product if product else "") \
         .replace("%b", "{}_{}".format(target, variant))
@@ -130,7 +132,7 @@ def create_module_registry(hdrs = []):
         get = module_map.get,
     )
 
-def define_target_modules(target, variants, registry, modules, config_options = [], products = []):
+def define_target_modules(target, variants, registry, modules, config_options = [], products = [], arch = None):
     for variant in variants:
         if products:
             for product in products:
@@ -141,6 +143,7 @@ def define_target_modules(target, variants, registry, modules, config_options = 
                     modules = modules,
                     product = product,
                     config_options = config_options,
+                    arch = arch,
                 )
         else:
             _define_target_modules(
@@ -149,4 +152,5 @@ def define_target_modules(target, variants, registry, modules, config_options = 
                 registry = registry,
                 modules = modules,
                 config_options = config_options,
+                arch = arch,
             )
