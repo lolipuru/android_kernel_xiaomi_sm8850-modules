@@ -14,6 +14,7 @@
 #include <linux/usb/phy.h>
 #include <linux/jiffies.h>
 #include <linux/pm_qos.h>
+#include <linux/suspend.h>
 #include <linux/ipc_logging.h>
 
 #include "sde_connector.h"
@@ -235,6 +236,7 @@ struct dp_display_private {
 	bool pm_qos_requested;
 
 	struct notifier_block usb_nb;
+	struct notifier_block pm_nb;
 
 	u32 cell_idx;
 	u32 intf_idx[DP_STREAM_MAX];
@@ -2258,6 +2260,7 @@ int dp_display_mmrm_callback(struct mmrm_client_notifier_data *notifier_data)
 
 static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 {
+	unregister_pm_notifier(&dp->pm_nb);
 	dp_debug_put(dp->debug);
 	dp_hpd_put(dp->hpd);
 	if (dp->panel)
@@ -2271,6 +2274,42 @@ static void dp_display_deinit_sub_modules(struct dp_display_private *dp)
 	dp_catalog_put(dp->catalog);
 	dp_parser_put(dp->parser);
 	mutex_destroy(&dp->session_lock);
+}
+
+static int dp_pm_notifier_call(struct notifier_block *nb,
+			       unsigned long event, void *data)
+{
+	struct dp_display_private *dp = container_of(nb,
+			struct dp_display_private, pm_nb);
+	bool hdcp_enabled;
+
+	switch (event) {
+	case PM_SUSPEND_PREPARE:
+		mutex_lock(&dp->session_lock);
+		dp_display_state_add(DP_STATE_SUSPENDED);
+		dp_display_state_add(DP_STATE_HDCP_ABORTED);
+		hdcp_enabled = dp_display_is_hdcp_enabled(dp);
+		mutex_unlock(&dp->session_lock);
+
+		if (hdcp_enabled)
+			dp_display_abort_hdcp(dp, true);
+		cancel_delayed_work_sync(&dp->hdcp_cb_work);
+		DP_INFO("PM_SUSPEND_PREPARE: HDCP work cancelled, states set\n");
+		break;
+	case PM_POST_SUSPEND:
+		dp_display_abort_hdcp(dp, false);
+
+		mutex_lock(&dp->session_lock);
+		dp_display_state_remove(DP_STATE_SUSPENDED);
+		dp_display_state_remove(DP_STATE_HDCP_ABORTED);
+		mutex_unlock(&dp->session_lock);
+		DP_INFO("PM_POST_SUSPEND: DP_STATE_SUSPENDED cleared\n");
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_OK;
 }
 
 static int dp_init_sub_modules(struct dp_display_private *dp)
@@ -2495,6 +2534,9 @@ skip_node_name:
 			goto error_hpd_reg;
 		}
 	}
+
+	dp->pm_nb.notifier_call = dp_pm_notifier_call;
+	register_pm_notifier(&dp->pm_nb);
 
 	return rc;
 error_hpd_reg:
