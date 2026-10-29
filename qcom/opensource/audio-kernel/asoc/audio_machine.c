@@ -85,6 +85,7 @@ struct msm_asoc_mach_data {
 	struct device_node *dmic23_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic45_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic67_gpio_p; /* used by pinctrl API */
+	struct device_node *dmic_enable_gpio; /* used by pinctrl API */
 	struct pinctrl *usbc_en2_gpio_p; /* used by pinctrl API */
 	bool is_afe_config_done;
 	struct device_node *fsa_handle;
@@ -2854,6 +2855,16 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	pdata->dmic67_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					      "qcom,cdc-dmic67-gpios",
 					       0);
+
+	/* xiaomi (micode sun.c): DMIC supply enable on boards without WCD */
+	if (pdata->wcd_disabled) {
+		pdata->dmic_enable_gpio = of_parse_phandle(pdev->dev.of_node,
+						"qcom,cdc-dmic-enable-gpios", 0);
+		ret = msm_cdc_pinctrl_select_active_state(pdata->dmic_enable_gpio);
+		if (ret)
+			dev_err(&pdev->dev, "%s:%d dmicenable_gpio set failed, err:%d\n",
+				__func__, __LINE__, ret);
+	}
 	if (pdata->dmic01_gpio_p)
 		msm_cdc_pinctrl_set_wakeup_capable(pdata->dmic01_gpio_p, false);
 	if (pdata->dmic23_gpio_p)
