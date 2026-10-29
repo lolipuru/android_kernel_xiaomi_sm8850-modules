@@ -385,6 +385,21 @@ SND_SOC_DAILINK_DEFS(sep_mi2s_tx,
 	DAILINK_COMP_ARRAY(COMP_CODEC("msm-stub-codec.1", "msm-stub-tx")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
 
+#if defined(CONFIG_TARGET_PRODUCT_MYRON)
+SND_SOC_DAILINK_DEFS(pri_tdm_rx_0,
+	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
+	DAILINK_COMP_ARRAY(COMP_CODEC("tfa98xx.13-0034", "tfa98xx-aif-d-34"),
+			COMP_CODEC("tfa98xx.13-0035", "tfa98xx-aif-d-35"),
+			COMP_CODEC("tfa98xx.13-0036", "tfa98xx-aif-d-36")),
+	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
+
+SND_SOC_DAILINK_DEFS(pri_tdm_tx_0,
+	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
+	DAILINK_COMP_ARRAY(COMP_CODEC("tfa98xx.13-0034", "tfa98xx-aif-d-34"),
+			COMP_CODEC("tfa98xx.13-0035", "tfa98xx-aif-d-35"),
+			COMP_CODEC("tfa98xx.13-0036", "tfa98xx-aif-d-36")),
+	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
+#else
 SND_SOC_DAILINK_DEFS(pri_tdm_rx_0,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
 	DAILINK_COMP_ARRAY(COMP_CODEC("msm-stub-codec.1", "msm-stub-rx")),
@@ -394,6 +409,7 @@ SND_SOC_DAILINK_DEFS(pri_tdm_tx_0,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),
 	DAILINK_COMP_ARRAY(COMP_CODEC("msm-stub-codec.1", "msm-stub-tx")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("snd-soc-dummy")));
+#endif
 
 SND_SOC_DAILINK_DEFS(sec_tdm_rx_0,
 	DAILINK_COMP_ARRAY(COMP_CPU("snd-soc-dummy-dai")),

@@ -1367,6 +1367,19 @@ static struct snd_soc_dai_link msm_tdm_dai_links[] = {
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(pri_tdm_tx_0),
 	},
+#if defined(CONFIG_TARGET_PRODUCT_MYRON)
+	{
+		.name = LPASS_BE_PRI_TDM_RX_0_VIRT,
+		.stream_name = LPASS_BE_PRI_TDM_RX_0_VIRT,
+		.playback_only = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.ops = &msm_common_be_ops,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		SND_SOC_DAILINK_REG(pri_tdm_rx_0),
+	},
+#endif
 	{
 		.name = LPASS_BE_SEC_TDM_RX_0,
 		.stream_name = LPASS_BE_SEC_TDM_RX_0,
