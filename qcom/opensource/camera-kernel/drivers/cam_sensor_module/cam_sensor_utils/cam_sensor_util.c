@@ -22,9 +22,10 @@ static struct mutex     cam_power_up_sync_mutex[MAX_CCI_DEV][MAX_MASTER_DEV];// 
 #define VALIDATE_VOLTAGE(min, max, config_val) ((config_val) && \
 	(config_val >= min) && (config_val <= max))
 //xiaomi add start
-#define HARDWARE_PROJECT_P2         1
-#define HARDWARE_PROJECT_P3         2
-#define HARDWARE_PROJECT_Q200       3
+
+#define CAM_HWID_PROJECT_P2         1
+#define CAM_HWID_PROJECT_P3         2
+#define CAM_HWID_PROJECT_Q200       3
 
 #define FACTORY_P0		    0
 #define FACTORY_P1		    1
@@ -3508,12 +3509,12 @@ bool xiaomi_hwid_compatible(void)
 
 	CAM_DBG(CAM_SENSOR_UTIL, " hwversion info  id %d, major %d, minor %d",platform_id, major, minor);
 	switch (platform_id) {
-		case HARDWARE_PROJECT_P2:
+		case CAM_HWID_PROJECT_P2:
 			if( FACTORY_P0 == major) {
 				rc = true;
 			}
 			break;
-		case HARDWARE_PROJECT_P3:
+		case CAM_HWID_PROJECT_P3:
 			if((0 == minor) || (1 == minor)) {
 				if((FACTORY_P0 ==  major) || (FACTORY_P0_GL == major)) {
 					rc = true;
@@ -3525,7 +3526,7 @@ bool xiaomi_hwid_compatible(void)
 				}
 			}
 			break;
-		case HARDWARE_PROJECT_Q200:
+		case CAM_HWID_PROJECT_Q200:
 			if( FACTORY_P0 == major ) {
 				if((0 == minor) || (1 == minor)) {
 					rc = true;
