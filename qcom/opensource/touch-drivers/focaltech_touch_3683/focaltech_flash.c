@@ -2098,6 +2098,9 @@ static void fts_fwupg_work(struct work_struct *work)
     fts_irq_enable();
     upg->ts_data->fw_loading = 0;
 
+    if (fts_get_lockdown_information(upg->ts_data))
+        FTS_ERROR("get lockdown information fails");
+
     /*init hardware_param/hardware_operation for right data*/
     fts_init_xiaomi_touchfeature_v3(fts_data);
     /*open report_switch*/

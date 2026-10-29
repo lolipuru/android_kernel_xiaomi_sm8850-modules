@@ -3730,9 +3730,7 @@ static u8 fts_panel_vendor_read(void)
 		return 0;
 	}
 
-	if (fts_data->lockdown_info[0] == 0x71 || fts_data->lockdown_info[0] == 0x46)
-		info = 0x46;
-
+	info = fts_data->lockdown_info[0];
 	FTS_INFO("read info is %c", info);
 	return info;
 }
