@@ -103,8 +103,9 @@
 #define FTS_TOUCH_E_NUM                     1
 #define FTS_X_MIN_DISPLAY_DEFAULT           0
 #define FTS_Y_MIN_DISPLAY_DEFAULT           0
-#define FTS_X_MAX_DISPLAY_DEFAULT           904
-#define FTS_Y_MAX_DISPLAY_DEFAULT           572
+
+#define FTS_X_MAX_DISPLAY_DEFAULT           1200
+#define FTS_Y_MAX_DISPLAY_DEFAULT           2608
 
 #define FTS_TOUCH_DOWN                      0
 #define FTS_TOUCH_UP                        1
@@ -128,8 +129,8 @@
 #define TOUCH_DUMP_TIC_SUPPORT
 
 #define FOCAL_DRIVER_VERSION "FT3383-2025.07.04-01"
-#define TX_NUM                              9
-#define RX_NUM                              14
+#define TX_NUM                              18
+#define RX_NUM                              39
 #define ROW_NUM_MAX                         20
 #define COL_NUM_MAX                         41
 
@@ -137,8 +138,8 @@
 #define RESERVES_BIG_BUF_SIZE               8
 #define MAX_DATA_LEN                        256
 
-#define ROW_NUM_CURRENT_POS					9
-#define COL_NUM_CURRENT_POS					14
+#define ROW_NUM_CURRENT_POS					18
+#define COL_NUM_CURRENT_POS					39
 #define RAW_MAX_SIZE						((ROW_NUM_MAX + 2) * COL_NUM_MAX + (ROW_NUM_MAX + 2 + COL_NUM_MAX) * 2)
 #define FRAME_MAX_SIZE						(64 + RAW_MAX_SIZE * 2 + 200 + 800)
 #define RESERVES_TOUCH_DATA_SIZE			(RAW_MAX_SIZE - ((ROW_NUM_CURRENT_POS + 2) * COL_NUM_CURRENT_POS + (ROW_NUM_CURRENT_POS + 2 + COL_NUM_CURRENT_POS) * 2))
@@ -161,7 +162,7 @@
 #define CRC32_POLYNOMIAL         0xE89061DB
 #define BIG_SMALL_CHANGE
 /*#define TOUCH_ID 0*/
-#define TOUCH_ID         (1)
+#define TOUCH_ID         (0)
 /*for global*/
 extern struct fts_test *fts_ftest;
 extern hardware_operation_t hardware_operation;

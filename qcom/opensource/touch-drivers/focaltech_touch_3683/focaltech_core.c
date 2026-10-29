@@ -64,8 +64,8 @@
 struct fts_ts_data *fts_data;
 enum FTS_LOG_LEVEL debug_log_level = FTS_LOG_INFO;
 
-#define FOCALTECH_RX_NUM                    9
-#define FOCALTECH_TX_NUM                    14
+#define FOCALTECH_RX_NUM                    18
+#define FOCALTECH_TX_NUM                    39
 #define SUPER_RESOLUTION_FACOTR             100
 /*struct device_node *gf_spi_dp;*/
 
@@ -1753,7 +1753,7 @@ static int fts_input_init(struct fts_ts_data *ts_data)
 
     FTS_FUNC_ENTER();
 #if 1
-    input_dev = register_xiaomi_input_dev(TOUCH_ID, fts_get_x_resolution()*fts_get_super_resolution_factor() -1, fts_get_y_resolution()*fts_get_super_resolution_factor() -1, FOCAL_SEC);
+    input_dev = register_xiaomi_input_dev(TOUCH_ID, fts_get_x_resolution()*fts_get_super_resolution_factor() -1, fts_get_y_resolution()*fts_get_super_resolution_factor() -1, FOCAL_PRI);
     if (!input_dev) {
         FTS_ERROR("Failed to allocate memory for input device");
         return -ENOMEM;
@@ -4461,8 +4461,8 @@ void fts_init_xiaomi_touchfeature_v3(struct fts_ts_data *ts_data)
 	/* init struct touchmode for reg setting */
 	fts_init_touchmode_data(ts_data);
 	register_touch_panel(ts_data->dev, TOUCH_ID, &hardware_param, &hardware_operation);
-	xiaomi_register_panel_notifier(fts_data->dev, TOUCH_ID, PANEL_EVENT_NOTIFICATION_SECONDARY, 
-				PANEL_EVENT_NOTIFIER_CLIENT_SECONDARY_TOUCH);
+	xiaomi_register_panel_notifier(fts_data->dev, TOUCH_ID, PANEL_EVENT_NOTIFICATION_PRIMARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH);
 #ifdef TOUCH_GESTURE_ALWAYSON_SUPPORT
 #ifndef CONFIG_TOUCH_FACTORY_BUILD
 	set_touch_mode(DATA_MODE_14, 1);
