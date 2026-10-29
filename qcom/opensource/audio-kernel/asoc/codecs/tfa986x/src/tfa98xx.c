@@ -105,9 +105,9 @@ static int tfa98xx_get_fssel(unsigned int rate);
 
 static int get_profile_from_list(char *buf, int id);
 static int get_profile_id_for_sr(int id, unsigned int rate);
-extern bool check_smartpa_type(const char *name);
-extern int set_smartpa_type(const char *name, unsigned int size);
-extern void set_smartpa_codec(struct device *dev, const char *dai_name);
+static inline bool check_smartpa_type(const char *name) { return true; }
+static inline int set_smartpa_type(const char *name, unsigned int size) { return 0; }
+static inline void set_smartpa_codec(struct device *dev, const char *dai_name) { }
 
 struct tfa98xx_rate {
 	unsigned int rate;
