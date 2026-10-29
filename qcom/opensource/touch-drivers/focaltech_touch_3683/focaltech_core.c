@@ -3220,7 +3220,8 @@ void fts_set_cur_value(int mode_input, int *value_input)
 		return;
 	}
 
-	if (fts_data->suspended && mode_input != DATA_MODE_138) {
+	if (fts_data->suspended && mode_input != DATA_MODE_138 &&
+	    mode_input != DATA_MODE_174) {
 		FTS_INFO("tp is suspend, skip set_cur_value: touch mode:%d, value:%d", mode, value);
 		return;
 	}
@@ -3317,6 +3318,26 @@ void fts_set_cur_value(int mode_input, int *value_input)
 		return;
 	}
 #endif
+
+	if (mode == DATA_MODE_130) {
+		fts_htc_set_normalize_study(value);
+		return;
+	}
+
+	if (mode == DATA_MODE_153)
+		return;
+
+	if (mode == DATA_MODE_174) {
+		ret = fts_thp_ic_write_interfaces(0x11, &value, 2);
+		if (ret < 0)
+			FTS_ERROR("set idle report rate %d failed: %d", value, ret);
+		return;
+	}
+
+	if (mode == DATA_MODE_163) {
+		fts_htc_set_double_scan(value);
+		return;
+	}
 
 	if (mode == DATA_MODE_160) {
 		fts_htc_set_freq_hopping(value);
