@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __CAM_SYNC_UTIL_H__
@@ -115,7 +115,7 @@ int cam_sync_init_group_object(struct sync_table_row *table,
  *
  * @return None
  */
-int cam_sync_util_cb_dispatch(void *priv, void *data);
+void cam_sync_util_cb_dispatch(struct work_struct *cb_dispatch_work);
 
 /**
  * @brief: Function to dispatch callbacks for a signaled sync object

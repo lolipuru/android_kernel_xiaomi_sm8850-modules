@@ -25,17 +25,13 @@
 #define CAM_VFE_MAX_UBWC_PORTS        12
 
 #define CAM_VFE_PERF_CNT_MAX          8
-#define CAM_VFE_LEN_LOG_BUF           1024
-
-#define CAM_VFE_GET_PAYLOAD_ERR_MAX   50
 
 /* Common capabilities for VFE */
 #define CAM_VFE_COMMON_CAP_SKIP_CORE_CFG        BIT(0)
 #define CAM_VFE_COMMON_CAP_CORE_MUX_CFG         BIT(1)
 #define CAM_VFE_COMMON_CAP_DEBUG_ERR_VEC        BIT(2)
 #define CAM_VFE_COMMON_CAP_SPLIT_CTXT_RD_WR_SEL BIT(3)
-#define CAM_VFE_COMMON_CAP_PD10_PACKED_PLAIN128 BIT(4)
-#define CAM_VFE_COMMON_CAP_NV12_PACKED_PLAIN_8  BIT(5)
+
 
 enum cam_isp_hw_vfe_in_mux {
 	CAM_ISP_HW_VFE_IN_CAMIF       = 0,
@@ -217,7 +213,7 @@ struct cam_vfe_hw_vfe_in_acquire_args {
  * struct cam_vfe_acquire_args:
  *
  * @rsrc_type:               Type of Resource (OUT/IN) to acquire
- * @worker_ctx:              worker to associate with this resource. This is
+ * @tasklet:                 Tasklet to associate with this resource. This is
  *                           used to schedule bottom of IRQ events associated
  *                           with this resource.
  * @priv:                    Context data
@@ -230,7 +226,7 @@ struct cam_vfe_hw_vfe_in_acquire_args {
  */
 struct cam_vfe_acquire_args {
 	enum cam_isp_resource_type           rsrc_type;
-	void                                *worker_ctx;
+	void                                *tasklet;
 	void                                *priv;
 	cam_hw_mgr_event_cb_func             event_cb;
 	void                                *buf_done_controller;

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IRQ_CONTROLLER_H_
@@ -78,7 +78,6 @@ struct cam_irq_register_set {
  *                          for Set IRQ cmd to take effect
  * @clear_all_bitmask:      Bitmask that specifies which bits should be written
  *                          to clear register when it is to be cleared forcefully
- * @skip_global_clear:      Flag to indicate if global clear needs to be skipped
  */
 struct cam_irq_controller_reg_info {
 	uint32_t                      num_registers;
@@ -87,7 +86,6 @@ struct cam_irq_controller_reg_info {
 	uint32_t                      global_clear_bitmask;
 	uint32_t                      global_set_bitmask;
 	uint32_t                      clear_all_bitmask;
-	bool                          skip_global_clear;
 };
 
 /*
@@ -135,6 +133,22 @@ typedef int (*CAM_IRQ_HANDLER_TOP_HALF)(uint32_t evt_id,
 typedef int (*CAM_IRQ_HANDLER_BOTTOM_HALF)(void *handler_priv,
 	void *evt_payload_priv);
 
+typedef void (*CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC)(void *bottom_half,
+	void *bh_cmd, void *handler_priv, void *evt_payload_priv,
+	CAM_IRQ_HANDLER_BOTTOM_HALF);
+
+typedef int (*CAM_IRQ_GET_TASKLET_PAYLOAD_FUNC)(void *bottom_half,
+	void **bh_cmd);
+
+typedef void (*CAM_IRQ_PUT_TASKLET_PAYLOAD_FUNC)(void *bottom_half,
+	void **bh_cmd);
+
+struct cam_irq_bh_api {
+	CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC bottom_half_enqueue_func;
+	CAM_IRQ_GET_TASKLET_PAYLOAD_FUNC get_bh_payload_func;
+	CAM_IRQ_PUT_TASKLET_PAYLOAD_FUNC put_bh_payload_func;
+};
+
 /*
  * cam_irq_controller_init()
  *
@@ -171,6 +185,8 @@ int cam_irq_controller_init(const char       *name,
  * @bottom_half_handler: Bottom half Handler callback function
  * @bottom_half:         Pointer to bottom_half implementation on which to
  *                       enqueue the event for further handling
+ * @bottom_half_enqueue_func:
+ *                       Function used to enqueue the bottom_half event
  * @evt_grp:             Event group to which this event must belong to (use group 0 as default)
  *
  * @return:              Positive: Success. Value represents handle which is
@@ -184,6 +200,7 @@ int cam_irq_controller_subscribe_irq(void *irq_controller,
 	CAM_IRQ_HANDLER_TOP_HALF           top_half_handler,
 	CAM_IRQ_HANDLER_BOTTOM_HALF        bottom_half_handler,
 	void                              *bottom_half,
+	struct cam_irq_bh_api             *irq_bh_api,
 	enum cam_irq_event_group           evt_grp);
 
 /*
@@ -345,19 +362,6 @@ int cam_irq_controller_register_dependent(void *primary_controller, void *second
  *                         Negative: failed to unregister dependent
  */
 int cam_irq_controller_unregister_dependent(void *primary_controller, void *secondary_controller);
-
-/**
- * cam_irq_controller_set_irq()
- * @brief:                 Set IRQ mask for a given IRQ register of a given controller
- *
- * @irq_controller:        Controller for which set command needs to be issued
- * @reg_index:             Register index at which IRQ set needs to be performed
- * @set_mask:              Set mask to carry out IRQ set function
- *
- * @return:                0: successfully set
- *                         Negative: failed to set IRQ
- */
-int cam_irq_controller_set_irq(void *irq_controller, uint32_t reg_index, uint32_t set_mask);
 
 /**
  * cam_irq_controller_test_irq_line()

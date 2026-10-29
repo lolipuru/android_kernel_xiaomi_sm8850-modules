@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _CAM_VFE_CAMIF_LITE_VER3_H_
@@ -24,6 +23,7 @@ struct cam_vfe_camif_lite_ver3_reg {
 	uint32_t     lite_debug_0;
 	uint32_t     lite_test_bus_ctrl;
 	uint32_t     camif_lite_spare;
+	uint32_t     reg_update_cmd;
 };
 
 struct cam_vfe_camif_lite_ver3_reg_data {
@@ -44,18 +44,9 @@ struct cam_vfe_camif_lite_ver3_reg_data {
 };
 
 struct cam_vfe_camif_lite_ver3_hw_info {
-	struct cam_vfe_top_ver3_reg_offset_common      *common_reg;
-	struct cam_vfe_camif_lite_ver3_reg             *camif_lite_reg;
-	struct cam_vfe_camif_lite_ver3_reg_data        *reg_data;
-	struct cam_vfe_top_err_irq_desc                *top_violation_err_desc;
-	struct cam_vfe_top_err_irq_desc                *top_overflow_err_desc;
-	struct cam_vfe_top_err_irq_desc                *bus_overflow_err_desc;
-	uint64_t                                        path_reg_base;
-	uint32_t                                        num_top_violation_errors;
-	uint32_t                                        num_top_overflow_errors;
-	uint32_t                                        num_bus_overflow_errors;
-	uint32_t                                        lcr_violation_mask;
-	uint32_t                                        pd_violation_mask;
+	struct cam_vfe_top_ver3_reg_offset_common   *common_reg;
+	struct cam_vfe_camif_lite_ver3_reg          *camif_lite_reg;
+	struct cam_vfe_camif_lite_ver3_reg_data     *reg_data;
 };
 
 int cam_vfe_camif_lite_ver3_acquire_resource(
@@ -63,7 +54,6 @@ int cam_vfe_camif_lite_ver3_acquire_resource(
 	void                                  *acquire_param);
 
 int cam_vfe_camif_lite_ver3_init(
-	void                          *top_priv,
 	struct cam_hw_intf            *hw_intf,
 	struct cam_hw_soc_info        *soc_info,
 	void                          *camif_lite_hw_info,

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef CAM_ICP_HW_INTF_H
@@ -32,6 +32,9 @@
 #define IPE_CAPS_MASK_IDX 0
 #define BPS_CAPS_MASK_IDX 0
 #define OFE_CAPS_MASK_IDX 1
+
+/* max caps mask is max value of all device caps mask index added by 1 */
+#define MAX_HW_CAPS_MASK 2
 
 /*
  * icp inter vm commnication timeout must be higher,
@@ -67,7 +70,6 @@ enum cam_icp_dev_cmd_type {
 	CAM_ICP_DEV_CMD_UPDATE_CLK,
 	CAM_ICP_DEV_CMD_DISABLE_CLK,
 	CAM_ICP_DEV_CMD_RESET,
-	CAM_ICP_DEV_CMD_DUMP_CLK,
 	CAM_ICP_DEV_CMD_MAX
 };
 
@@ -91,7 +93,6 @@ enum cam_icp_cmd_type {
 	CAM_ICP_CMD_SET_HFI_HANDLE,
 	CAM_ICP_CMD_PREP_BOOT,
 	CAM_ICP_CMD_PREP_SHUTDOWN,
-	CAM_ICP_CMD_DUMP_CLK,
 	CAM_ICP_CMD_MAX,
 };
 

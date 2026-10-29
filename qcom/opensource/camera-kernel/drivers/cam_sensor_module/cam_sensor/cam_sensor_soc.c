@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -92,6 +92,23 @@ int32_t cam_sensor_get_sub_module_index(struct device_node *of_node,
 		CAM_ERR(CAM_SENSOR, "paring the dt node for csiphy rc %d", rc);
 	else
 		sensor_info->subdev_id[SUB_MODULE_CSIPHY] = val;
+
+	//xiaomi add
+	src_node = of_parse_phandle(of_node, "zoom-src", 0);
+	if (!src_node) {
+		CAM_DBG(CAM_SENSOR, "src_node NULL");
+	} else {
+		rc = of_property_read_u32(src_node, "cell-index", &val);
+		CAM_DBG(CAM_SENSOR, "zoom cell index %d, rc %d", val, rc);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR, "failed %d", rc);
+			of_node_put(src_node);
+			return rc;
+		}
+		sensor_info->subdev_id[SUB_MODULE_ZOOM] = val;
+		of_node_put(src_node);
+	}
+	//xiaomi end
 
 	return rc;
 }
@@ -266,6 +283,21 @@ int32_t cam_sensor_parse_dt(struct cam_sensor_ctrl_t *s_ctrl)
 	else
 		s_ctrl->hw_no_ops = true;
 
+	/* Initialize mutex */
+	mutex_init(&(s_ctrl->cam_sensor_mutex));
+	mutex_init(&(s_ctrl->read_buf_lock));
+	INIT_LIST_HEAD(&(s_ctrl->read_buf_list));
+
+	if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+		init_power_sync_mutex(s_ctrl->io_master_info.cci_client, s_ctrl->io_master_info.cci_client->cci_i2c_master);//xiaomi add
+	} else if (s_ctrl->io_master_info.master_type == I2C_MASTER) {
+		init_power_sync_mutex(s_ctrl->io_master_info.cci_client, CCI_MASTER_0);
+	} else {
+		CAM_ERR(CAM_SENSOR,
+			"Invalid master / Master type Not supported : %d",
+				s_ctrl->io_master_info.master_type);
+	}
+
 	return rc;
 
 release_resources:
@@ -277,3 +309,4 @@ free_sensor_data:
 
 	return rc;
 }
+

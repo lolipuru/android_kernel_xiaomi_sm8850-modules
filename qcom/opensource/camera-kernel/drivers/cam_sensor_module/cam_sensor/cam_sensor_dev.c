@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_sensor_dev.h"
@@ -11,6 +11,39 @@
 #include "camera_main.h"
 #include "cam_compat.h"
 #include "cam_mem_mgr_api.h"
+#include "xm_cam_dev_protection.h" //xiaomi dev protection add
+
+/* xiaomi add for cam_io_dev use begin */
+#define MAX_I2C_CLIENTS 6
+static uint8_t g_i2c_client_count = 0;
+static struct i2c_client *g_i2c_client[MAX_I2C_CLIENTS] = { 0 };
+static char g_i2c_client_name[MAX_I2C_CLIENTS][20];
+
+struct i2c_client *cam_get_i2c_client(const char* i2c_name)
+{
+	for (int i = 0; i < g_i2c_client_count; i++) {
+		// 使用 strcmp 比较字符串，如果相等返回0
+		if (strcmp(g_i2c_client_name[i], i2c_name) == 0)
+		{
+			return g_i2c_client[i];
+		}
+	}
+	return NULL;
+}
+
+#define MAX_CAM_SENSOR_CLIENTS 10
+static struct camera_io_master *g_cam_io_masters[MAX_CAM_SENSOR_CLIENTS] = { 0 };
+
+struct camera_io_master *get_camera_io_master(uint32_t slot_id)
+{
+	if (slot_id < MAX_CAM_SENSOR_CLIENTS) {
+		return g_cam_io_masters[slot_id];
+	} else {
+		CAM_ERR(CAM_SENSOR, "Invalid slot_id %d", slot_id);
+		return NULL;
+	}
+}
+/* xiaomi add for cam_io_dev use end */
 
 static struct cam_sensor_i3c_sensor_data {
 	struct cam_sensor_ctrl_t                  *s_ctrl;
@@ -319,6 +352,10 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 	long                      microsec = 0;
 	struct device_node       *np = NULL;
 	const char               *drv_name;
+/* xiaomi add for cam_io_dev use begin */
+	struct device_node       *parent = NULL;
+	const char               *i2c_bus_name = NULL;
+/* xiaomi add for cam_io_dev use end */
 
 	CAM_GET_TIMESTAMP(ts_start);
 	client = container_of(dev, struct i2c_client, dev);
@@ -405,6 +442,9 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.reg_bank_unlock_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.reg_bank_lock_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.read_settings.list_head));
+//add by xiaomi
+	INIT_LIST_HEAD(&(s_ctrl->i2c_data.delay_config_settings.list_head));
+//end by xiaomi
 
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.deferred_frame_update[i].list_head));
@@ -412,10 +452,6 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.frame_skip[i].list_head));
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.bubble_update[i].list_head));
 	}
-
-	/* Initialize mutex and read buf list */
-	mutex_init(&(s_ctrl->cam_sensor_mutex));
-	INIT_LIST_HEAD(&(s_ctrl->read_buf_list));
 
 	cam_sensor_module_add_i2c_device((void *) s_ctrl, CAM_SENSOR_DEVICE);
 
@@ -435,6 +471,48 @@ static int cam_sensor_i2c_component_bind(struct device *dev,
 	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
 	cam_record_bind_latency(drv_name, microsec);
 	of_node_put(np);
+
+	//xiaomi dev protection add
+	if (XM_CAM_DEV_XXSKIP_SENSOR_OP_CODE == xm_cam_dev_probe_skip_switch_enable()) {
+		xm_cam_dev_probe_skip_clear();
+	}
+	//xiaomi dev protection add
+
+	/* xiaomi add for cci debug start */
+	rc = cam_cci_dev_create_debugfs_entry(s_ctrl->sensor_name,
+		s_ctrl->soc_info.index, CAM_SENSOR_NAME,
+		&s_ctrl->io_master_info, CCI_MASTER_MAX,
+		&s_ctrl->cci_debug);
+	if (rc) {
+		CAM_WARN(CAM_SENSOR, "debugfs creation failed rc %d", rc);
+		rc = 0;
+	}
+	/* xiaomi add for cci debug end */
+
+	/* xiaomi add for cam_io_dev use begin */
+	if (soc_info->index < MAX_CAM_SENSOR_CLIENTS)
+	{
+		CAM_DBG(CAM_SENSOR, "Slot %d add to io master, slave addr 0x%x %p", soc_info->index, s_ctrl->io_master_info.qup_client->i2c_client->addr,s_ctrl->io_master_info.qup_client->i2c_client);
+		g_cam_io_masters[soc_info->index] = &s_ctrl->io_master_info;
+	}
+
+	parent = of_get_parent(client->dev.of_node);
+	if (parent) {
+		i2c_bus_name = of_node_full_name(parent);
+
+		// 确保不超过数组边界
+		if (g_i2c_client_count < MAX_I2C_CLIENTS) {
+			strscpy(g_i2c_client_name[g_i2c_client_count], i2c_bus_name, 20);
+
+			CAM_DBG(CAM_SENSOR, "Slot %d add to g_i2c_client_count, i2c_bus_name %s %p", soc_info->index, g_i2c_client_name[g_i2c_client_count], client);
+			g_i2c_client[g_i2c_client_count++] = client;
+		} else {
+			CAM_WARN(CAM_SENSOR, "Too many I2C clients, max allowed : %d", MAX_I2C_CLIENTS);
+		}
+
+		of_node_put(parent);  // 减少引用计数
+	}
+	/* xiaomi add for cam_io_dev use begin */
 
 	return rc;
 
@@ -478,12 +556,15 @@ static void cam_sensor_i2c_component_unbind(struct device *dev,
 	mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 	cam_unregister_subdev(&(s_ctrl->v4l2_dev_str));
 	cam_sensor_util_release_resources(&(s_ctrl->io_master_info), &(s_ctrl->soc_info));
+	/* xiaomi add for cci debug start */
+	cam_cci_dev_remove_debugfs_entry((void *)s_ctrl->cci_debug);
+	/* xiaomi add for cci debug end */
+
 	CAM_MEM_FREE(s_ctrl->i2c_data.deferred_frame_update);
 	CAM_MEM_FREE(s_ctrl->i2c_data.per_frame);
 	CAM_MEM_FREE(s_ctrl->i2c_data.frame_skip);
 	CAM_MEM_FREE(s_ctrl->i2c_data.bubble_update);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
-	mutex_destroy(&(s_ctrl->cam_sensor_mutex));
 	CAM_MEM_FREE(s_ctrl);
 }
 
@@ -651,6 +732,9 @@ static int cam_sensor_component_bind(struct device *dev,
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.reg_bank_unlock_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.reg_bank_lock_settings.list_head));
 	INIT_LIST_HEAD(&(s_ctrl->i2c_data.read_settings.list_head));
+//add by xiaomi
+	INIT_LIST_HEAD(&(s_ctrl->i2c_data.delay_config_settings.list_head));
+//end by xiaomi
 
 	for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.deferred_frame_update[i].list_head));
@@ -658,10 +742,6 @@ static int cam_sensor_component_bind(struct device *dev,
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.frame_skip[i].list_head));
 		INIT_LIST_HEAD(&(s_ctrl->i2c_data.bubble_update[i].list_head));
 	}
-
-	/* Initialize mutex and read buf list */
-	mutex_init(&(s_ctrl->cam_sensor_mutex));
-	INIT_LIST_HEAD(&(s_ctrl->read_buf_list));
 
 	cam_sensor_module_add_i2c_device((void *) s_ctrl, CAM_SENSOR_DEVICE);
 
@@ -680,6 +760,33 @@ static int cam_sensor_component_bind(struct device *dev,
 	platform_set_drvdata(pdev, s_ctrl);
 	s_ctrl->sensor_state = CAM_SENSOR_INIT;
 	CAM_DBG(CAM_SENSOR, "Component bound successfully for %s", pdev->name);
+
+	//xiaomi dev protection add
+	if (XM_CAM_DEV_XXSKIP_SENSOR_OP_CODE == xm_cam_dev_probe_skip_switch_enable()) {
+		xm_cam_dev_probe_skip_clear();
+	}
+	//xiaomi dev protection add
+
+	/* xiaomi add for cci debug */
+	if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+		rc = cam_cci_dev_create_debugfs_entry(s_ctrl->sensor_name,
+			s_ctrl->soc_info.index, CAM_SENSOR_NAME,
+			&s_ctrl->io_master_info, s_ctrl->io_master_info.cci_client->cci_i2c_master,
+			&s_ctrl->cci_debug);
+		if (rc) {
+			CAM_WARN(CAM_SENSOR, "debugfs creation failed");
+			rc = 0;
+		}
+	}
+	/* xiaomi add for cci debug */
+
+	/* xiaomi add for cam_io_dev use begin */
+	if (soc_info->index < MAX_CAM_SENSOR_CLIENTS)
+	{
+		CAM_DBG(CAM_SENSOR, "Slot %d add to io master, slave addr 0x%x", soc_info->index, s_ctrl->io_master_info.cci_client->sid);
+		g_cam_io_masters[soc_info->index] = &s_ctrl->io_master_info;
+	}
+	/* xiaomi add for cam_io_dev use end */
 
 	g_i3c_sensor_data[soc_info->index].s_ctrl = s_ctrl;
 	init_completion(&g_i3c_sensor_data[soc_info->index].probe_complete);
@@ -719,6 +826,11 @@ static void cam_sensor_component_unbind(struct device *dev,
 	cam_sensor_shutdown(s_ctrl);
 	mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 	cam_unregister_subdev(&(s_ctrl->v4l2_dev_str));
+	/* xiaomi add for cci debug */
+	if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+		cam_cci_dev_remove_debugfs_entry((void *)s_ctrl->cci_debug);
+	}
+	/* xiaomi add for cci debug */
 	cam_sensor_util_release_resources(&(s_ctrl->io_master_info), &(s_ctrl->soc_info));
 	CAM_MEM_FREE(s_ctrl->i2c_data.deferred_frame_update);
 	CAM_MEM_FREE(s_ctrl->i2c_data.per_frame);
@@ -726,7 +838,6 @@ static void cam_sensor_component_unbind(struct device *dev,
 	CAM_MEM_FREE(s_ctrl->i2c_data.bubble_update);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&(s_ctrl->v4l2_dev_str.sd), NULL);
-	mutex_destroy(&(s_ctrl->cam_sensor_mutex));
 	devm_kfree(&pdev->dev, s_ctrl);
 }
 

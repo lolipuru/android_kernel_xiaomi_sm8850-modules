@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CONTEXT_H_
@@ -22,8 +22,14 @@ struct cam_context;
 /* max device name string length*/
 #define CAM_CTX_DEV_NAME_MAX_LENGTH 20
 
+// XIAOMI ADD: FeatureAutoEQ
+#define CAM_PHY_MAX_CTRL_NO 8
+#define CAM_PHY_DTS_NAME 50
+// END: FeatureAutoEQ
+
 /* max request number */
-#define CAM_CTX_REQ_MAX              8
+#define CAM_CTX_REQ_MAX              20
+#define CAM_CTX_ICP_REQ_MAX          40
 #define CAM_CTX_CFG_MAX              20
 #define CAM_CTX_RES_MAX              20
 
@@ -277,6 +283,12 @@ struct cam_context {
 	int                            img_iommu_hdl;
 	struct timespec64              cdm_done_tai_ts;
 	struct timespec64              cdm_done_boot_ts;
+	/*xiaomi added detect framerate begin*/
+	uint64_t                       dbg_timestamp;
+	uint64_t                       dbg_frame;
+	int32_t                        exlink;
+	uint32_t                       batchsize;
+	/*xiaomi added detect framerate end*/
 };
 
 /**

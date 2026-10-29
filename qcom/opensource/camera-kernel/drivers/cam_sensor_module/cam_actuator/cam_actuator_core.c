@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -12,6 +12,11 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 #include "cam_mem_mgr_api.h"
+#include "cam_parklens_thread.h" //xiaomi add
+
+/* xiaomi dev protection add*/
+#include "xm_cam_dev_protection.h"
+/* xiaomi dev protection add*/
 
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
@@ -59,6 +64,13 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 	struct cam_actuator_soc_private        *soc_private;
 	struct cam_sensor_power_ctrl_t         *power_info;
 	struct completion                      *i3c_probe_completion = NULL;
+	struct timespec64                       ts1, ts2; // xiaomi add
+	long                                    microsec = 0; // xiaomi add
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts1);
+	CAM_DBG(MI_DEBUG, "%s start power_up", a_ctrl->device_name);
+	/* xiaomi add end */
 
 	soc_private =
 		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
@@ -116,6 +128,13 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 		goto cci_failure;
 	}
 
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts2);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts1, ts2, microsec);
+	CAM_DBG(MI_DEBUG, "%s end power_up, occupy time is: %ld ms",
+		a_ctrl->device_name, microsec/1000);
+	/* xiaomi add end */
+
 	return rc;
 cci_failure:
 	if (cam_sensor_util_power_down(power_info, soc_info))
@@ -130,6 +149,13 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 	struct cam_sensor_power_ctrl_t *power_info;
 	struct cam_hw_soc_info *soc_info = &a_ctrl->soc_info;
 	struct cam_actuator_soc_private  *soc_private;
+	struct timespec64 ts1, ts2; // xiaomi add
+	long microsec = 0; // xiaomi add
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts1);
+	CAM_DBG(MI_DEBUG, "%s start power_down", a_ctrl->device_name);
+	/* xiaomi add end */
 
 	if (!a_ctrl) {
 		CAM_ERR(CAM_ACTUATOR, "failed: a_ctrl %pK", a_ctrl);
@@ -152,6 +178,13 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 	}
 
 	camera_io_release(&a_ctrl->io_master_info);
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts2);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts1, ts2, microsec);
+	CAM_DBG(MI_DEBUG, "%s end power_down, occupy time is: %ld ms",
+		a_ctrl->device_name, microsec/1000);
+	/* xiaomi add end */
 
 	return rc;
 }
@@ -248,11 +281,15 @@ int32_t cam_actuator_slaveInfo_pkt_parser(struct cam_actuator_ctrl_t *a_ctrl,
 	return rc;
 }
 
+/* xiaomi dev protection modified*/
 int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
-	struct i2c_settings_array *i2c_set)
+	struct i2c_settings_array *i2c_set,
+	enum xm_cam_dev_i2c_cmd_type i2c_cmd_type)
+/* xiaomi dev protection modified*/
 {
 	struct i2c_settings_list *i2c_list;
 	int32_t rc = 0;
+	int32_t j = 0; // xiaomi add
 
 	if (a_ctrl == NULL || i2c_set == NULL) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -264,8 +301,51 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 		return -EINVAL;
 	}
 
+	/* xiaomi dev protection add*/
+	if (XM_CAM_DEV_XXSKIP_SENSOR_OP_CODE == xm_cam_dev_protection_enable2(XM_CAM_DEV_TYPE_ACTUATOR, XM_CAM_DEV_PROTECTION_TYPE_I2C)) {
+		if (XM_CAM_DEV_XXSKIP_SENSOR_OP_CODE ==
+			xm_cam_dev_need_skip_i2c_operation3(get_actuator_xm_cam_dev_info(a_ctrl), i2c_cmd_type)) {
+			CAM_INFO(CAM_ACTUATOR, "skip i2c operation");
+			return 0;
+		}
+	}
+	/* xiaomi dev protection add*/
+
 	list_for_each_entry(i2c_list,
 		&(i2c_set->list_head), list) {
+		/* xiaomi add I2C trace begin */
+		switch (i2c_list->op_code) {
+		case CAM_SENSOR_I2C_WRITE_RANDOM:
+		case CAM_SENSOR_I2C_WRITE_BURST:
+		case CAM_SENSOR_I2C_WRITE_SEQ: {
+			for (j = 0;j < i2c_list->i2c_settings.size;j++) {
+				trace_cam_i2c_write_log_event("[ACTUATORSETTINGS]", a_ctrl->device_name,
+					i2c_set->request_id, j, "WRITE", i2c_list->i2c_settings.reg_setting[j].reg_addr,
+					i2c_list->i2c_settings.reg_setting[j].reg_data);
+			}
+			break;
+		}
+		case CAM_SENSOR_I2C_READ_RANDOM:
+		case CAM_SENSOR_I2C_READ_SEQ: {
+			for (j = 0;j < i2c_list->i2c_settings.size;j++) {
+				trace_cam_i2c_write_log_event("[ACTUATORSETTINGS]", a_ctrl->device_name,
+					i2c_set->request_id, j, "READ", i2c_list->i2c_settings.reg_setting[j].reg_addr,
+					i2c_list->i2c_settings.reg_setting[j].reg_data);
+			}
+			break;
+		}
+		case CAM_SENSOR_I2C_POLL: {
+			for (j = 0;j < i2c_list->i2c_settings.size;j++) {
+				trace_cam_i2c_write_log_event("[ACTUATORSETTINGS]", a_ctrl->device_name,
+					i2c_set->request_id, j, "POLL", i2c_list->i2c_settings.reg_setting[j].reg_addr,
+					i2c_list->i2c_settings.reg_setting[j].reg_data);
+			}
+			break;
+		}
+		default:
+			break;
+		}
+		/* xiaomi add I2C trace end */
 		rc = cam_actuator_i2c_modes_util(
 			&(a_ctrl->io_master_info),
 			i2c_list);
@@ -278,6 +358,27 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 				"Success:request ID: %d",
 				i2c_set->request_id);
 		}
+		/* xiaomi dev protection modified*/
+		if (XM_CAM_DEV_XXSKIP_SENSOR_OP_CODE == xm_cam_dev_protection_enable2(XM_CAM_DEV_TYPE_ACTUATOR, XM_CAM_DEV_PROTECTION_TYPE_I2C)) {
+			if (XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_INIT == i2c_cmd_type &&
+				true == xm_cam_dev_is_i2c_write_cmd(i2c_list)) {
+				xm_cam_dev_set_init_result(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_INIT_STATUS_SUCCESS);
+				if (rc < 0) {
+					xm_cam_dev_set_init_result(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_INIT_STATUS_FAILURE);
+					xm_cam_dev_set_status_info(get_actuator_xm_cam_dev_info(a_ctrl),
+											   XM_CAM_DEV_OPERATION_INIT,
+											   XM_CAM_DEV_STATUS_CODE_I2C_WRITE_ERROR);
+					if (true == xm_cam_dev_need_change_i2c_rc(get_actuator_xm_cam_dev_info(a_ctrl), i2c_cmd_type)) {
+						rc = 0;
+					}
+				} else {
+					xm_cam_dev_set_status_info(get_actuator_xm_cam_dev_info(a_ctrl),
+											   XM_CAM_DEV_OPERATION_INIT,
+											   XM_CAM_DEV_STATUS_CODE_I2C_WRITE_SUCCESS);
+				}
+			}
+		}
+		/* xiaomi dev protection modified*/
 	}
 
 	return rc;
@@ -310,8 +411,12 @@ int32_t cam_actuator_apply_request(struct cam_req_mgr_apply_request *apply)
 		a_ctrl->i2c_data.per_frame[request_id].request_id) &&
 		(a_ctrl->i2c_data.per_frame[request_id].is_settings_valid)
 		== 1) {
+		/* xiaomi dev protection modified*/
 		rc = cam_actuator_apply_settings(a_ctrl,
-			&a_ctrl->i2c_data.per_frame[request_id]);
+			&a_ctrl->i2c_data.per_frame[request_id],
+			XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_CRM_CONFIG);
+		/* xiaomi dev protection modified*/
+
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR,
 				"Failed in applying the request: %lld\n",
@@ -462,7 +567,9 @@ static int32_t cam_actuator_park_lens_cb(void *priv, void *data)
 		goto end;
 	}
 
-	rc = cam_actuator_apply_settings(a_ctrl, &a_ctrl->i2c_data.config_settings);
+	/* xiaomi dev protection modified*/
+	rc = cam_actuator_apply_settings(a_ctrl, &a_ctrl->i2c_data.config_settings, XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_PARK_LENS);
+	/* xiaomi dev protection modified*/
 	/* Power off regulator and release cci even if the apply is failed */
 	if (rc < 0)
 		CAM_ERR(CAM_ACTUATOR, "Apply park lens settings failed");
@@ -495,23 +602,26 @@ end:
 	return rc;
 }
 
+void cam_actuator_process_workq(struct work_struct *w)
+{
+	cam_req_mgr_process_workq(w);
+}
+
 static int cam_actuator_schedule_park_lens_task(
 	struct cam_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
-	struct cam_worker_wrapper_taskdata_args task;
+	struct crm_workq_task *task;
 
-	rc = cam_worker_wrapper_get(a_ctrl->worker_ctx, &task);
-	if (rc) {
+	task = cam_req_mgr_workq_get_task(a_ctrl->workq);
+	if (!task) {
 		CAM_ERR(CAM_ACTUATOR, "No empty task available");
 		return -ENOMEM;
 	}
 
-	task.task_priority = WORKER_TASK_PRIORITY_0;
-	rc = cam_worker_wrapper_enqueue(a_ctrl->worker_ctx, &task,
-		(void *)a_ctrl, NULL, &cam_actuator_park_lens_cb);
-	if (rc)
-		CAM_ERR(CAM_ACTUATOR, "enqueue work process to worker failed.");
+	task->process_cb = &cam_actuator_park_lens_cb;
+	rc = cam_req_mgr_workq_enqueue_task(task,
+		(void *)a_ctrl, CRM_TASK_PRIORITY_0);
 
 	return rc;
 }
@@ -554,6 +664,9 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
+
+	bool    parklens_power_down = true; //xiaomi add
+	int32_t parklens_state      = 0;    //xiaomi add
 
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -670,19 +783,47 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				break;
 			case CAMERA_SENSOR_CMD_TYPE_PWR_UP:
 			case CAMERA_SENSOR_CMD_TYPE_PWR_DOWN:
-				CAM_DBG(CAM_ACTUATOR,
-					"Received power settings buffer");
-				rc = cam_sensor_update_power_settings(
-					cmd_buf,
-					total_cmd_buf_in_bytes,
-					power_info, remain_len);
-				if (rc) {
-					CAM_ERR(CAM_ACTUATOR,
-					"Failed:parse power settings: %d",
-					rc);
-					cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
-					goto end;
+				CAM_INFO(CAM_ACTUATOR,
+					"Received power settings buffer");// xiaomi modify
+				/* xiaomi modify begin */
+				if (PARKLENS_INVALID !=
+					parklens_atomic_read(
+						&(a_ctrl->parklens_ctrl.parklens_state))) {
+						parklens_thread_stop(a_ctrl,
+							EXIT_PARKLENS_WITHOUT_POWERDOWN);
+						parklens_power_down =
+							is_parklens_power_down(a_ctrl);
+						deinit_parklens_info(a_ctrl);
+						CAM_DBG(MI_PARKLENS,
+							"[ParklensLog] stop parklens thread, powerdown:%d",
+							parklens_power_down);
+				} else {
+					CAM_DBG(MI_PARKLENS,
+						"[ParklensLog] parklens thread is invalid, powerdown:%d",
+						parklens_power_down);
 				}
+
+				if(parklens_power_down == true) {
+				 	CAM_INFO(MI_PARKLENS,
+				 		"[ParklensLog] need power up again");
+				/* xiaomi modify end */
+					rc = cam_sensor_update_power_settings(
+						cmd_buf,
+						total_cmd_buf_in_bytes,
+						power_info, remain_len);
+					if (rc) {
+						CAM_ERR(CAM_ACTUATOR,
+						"[ParklensLog] Failed:parse power settings: %d",
+						rc);
+						cam_mem_put_cpu_buf(cmd_desc[i].mem_handle);
+						goto end;
+					}
+				/* xiaomi modify begin */
+				} else {
+					CAM_INFO(MI_PARKLENS,
+						"[ParklensLog] no need repower up again");
+				}
+				/* xiaomi modify end */
 				break;
 			default:
 				CAM_DBG(CAM_ACTUATOR,
@@ -710,17 +851,22 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 		}
 
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_ACQUIRE) {
-			rc = cam_actuator_power_up(a_ctrl);
-			if (rc < 0) {
-				CAM_ERR(CAM_ACTUATOR,
-					" Actuator Power up failed");
-				goto end;
+			if (parklens_power_down == true) {//xiaomi add
+				rc = cam_actuator_power_up(a_ctrl);
+				if (rc < 0) {
+					CAM_ERR(CAM_ACTUATOR,
+						" Actuator Power up failed");
+					goto end;
+				}
 			}
 			a_ctrl->cam_act_state = CAM_ACTUATOR_CONFIG;
 		}
 
+		/* xiaomi dev protection modified*/
 		rc = cam_actuator_apply_settings(a_ctrl,
-			&a_ctrl->i2c_data.init_settings);
+			&a_ctrl->i2c_data.init_settings,
+			XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_INIT);
+		/* xiaomi dev protection modified*/
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			goto end;
@@ -867,16 +1013,24 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			goto end;
 		}
 
+		mutex_lock(&(a_ctrl->read_buf_lock));
 		rc = cam_sensor_util_add_read_buf_to_list(&(a_ctrl->read_buf_list),
 			io_cfg->mem_handle[0]);
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Add read buf to list failed rc:%d", rc);
+			mutex_unlock(&(a_ctrl->read_buf_lock));
 			goto end;
 		}
+		mutex_unlock(&(a_ctrl->read_buf_lock));
 
-		rc = cam_sensor_i2c_read_data(
+		// xiaomi change begin
+		// rc = cam_sensor_i2c_read_data(
+		// 	&i2c_read_settings,
+		// 	&a_ctrl->io_master_info);
+		rc = cam_sensor_i2c_read_and_write_data(
 			&i2c_read_settings,
 			&a_ctrl->io_master_info);
+		// xiaomi change end
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "cannot read data, rc:%d", rc);
 			delete_request(&i2c_read_settings);
@@ -962,6 +1116,77 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 
 		mutex_unlock(&(a_ctrl->actuator_park_mutex));
 		break;
+	/* xiaomi add begin */
+	case CAM_ACTUATOR_PACKET_OPCODE_MIPARK_LENS: {
+		int32_t exit_result = parklens_atomic_read(&(a_ctrl->parklens_ctrl.exit_result));
+
+		CAM_INFO(MI_PARKLENS, "[ParklensLog] Received parklens buffer");
+
+		parklens_state = parklens_atomic_read(
+							&(a_ctrl->parklens_ctrl.parklens_state));
+		if ((parklens_state != PARKLENS_INVALID) ||
+			(a_ctrl->cam_act_state < CAM_ACTUATOR_CONFIG)) {
+			rc = -EINVAL;
+			CAM_WARN(MI_PARKLENS,
+				"[ParklensLog] Not in right state to do parklens: %d/%d, exit result %d release power control right",
+				a_ctrl->cam_act_state,
+				parklens_state, exit_result);
+			parklens_thread_stop(a_ctrl, EXIT_PARKLENS_WITH_POWERDOWN);
+			deinit_parklens_info(a_ctrl);
+			goto end;
+		}
+
+		i2c_reg_settings = &(a_ctrl->i2c_data.parklens_settings);
+		i2c_reg_settings->request_id = 0;
+		i2c_reg_settings->is_settings_valid = 1;
+		offset   = (uint32_t *)&csl_packet->payload;
+		offset  += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+
+		rc = cam_sensor_i2c_command_parser(
+				&a_ctrl->io_master_info,
+				i2c_reg_settings,
+				cmd_desc, 1, NULL);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR,
+				"[ParklensLog] Failed:parse parklens settings: %d",
+				rc);
+			delete_request(i2c_reg_settings);
+			goto end;
+		}
+
+		parklens_thread_trigger(a_ctrl);
+		break;
+	}
+	case CAM_ACTUATOR_PACKET_OPCODE_SET_VOLTAGE: {
+		int setting_num = 0;
+		struct cam_cmd_set_power_voltage *pwr_voltage = NULL;
+
+		offset   = (uint32_t *)&csl_packet->payload;
+		offset  += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
+		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+
+		rc = cam_sensor_set_voltage_command_parser(cmd_desc, &pwr_voltage, &setting_num);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "Failed to parse voltage setting: %d", rc);
+			goto end;
+		}
+
+		CAM_DBG(CAM_ACTUATOR, "Power voltage settings count: %d", setting_num);
+		for(i = 0; i < setting_num; i++) {
+			rc = cam_sensor_core_set_power_voltage(&a_ctrl->soc_info, &pwr_voltage[i]);
+			if (rc < 0) {
+				CAM_ERR(CAM_ACTUATOR, "Failed to set power voltage for %d.", i);
+			}
+		}
+
+		if(pwr_voltage != NULL) {
+			CAM_MEM_FREE(pwr_voltage);
+			pwr_voltage = NULL;
+		}
+		break;
+	}
+	/* xiaomi add end */
 	default:
 		CAM_ERR(CAM_ACTUATOR, "Wrong Opcode: %d",
 			csl_packet->header.op_code & 0xFFFFFF);
@@ -993,24 +1218,62 @@ void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl)
 
 	a_ctrl->is_deferred_park_lens = false;
 
-	if (a_ctrl->cam_act_state == CAM_ACTUATOR_INIT)
-		return;
-
-	if (a_ctrl->cam_act_state >= CAM_ACTUATOR_CONFIG) {
-		rc = cam_actuator_power_down(a_ctrl);
-		if (rc < 0)
-			CAM_ERR(CAM_ACTUATOR, "Actuator Power down failed");
-		a_ctrl->cam_act_state = CAM_ACTUATOR_ACQUIRE;
+	/* xiaomi add begin */
+	if (PARKLENS_INVALID !=
+		parklens_atomic_read(&(a_ctrl->parklens_ctrl.parklens_state))) {
+		parklens_thread_stop(a_ctrl, EXIT_PARKLENS_WITH_POWERDOWN);
+		CAM_INFO(MI_PARKLENS,
+			"[ParklensLog] exit parklens with powerdown in shutdown");
+	} else {
+		CAM_INFO(MI_PARKLENS,
+			"[ParklensLog] parklens is invalid in shutdown");
 	}
+	/* xiaomi add end */
+
+	/* xiaomi comment begin */
+	// if (a_ctrl->cam_act_state == CAM_ACTUATOR_INIT)
+	// 	return;
+	/* xiaomi comment end */
+
+	/* xiaomi modify begin */
+	if (a_ctrl->cam_act_state >= CAM_ACTUATOR_CONFIG) {
+		if(false == is_parklens_power_down(a_ctrl)) {
+			rc = cam_actuator_power_down(a_ctrl);
+			if (rc < 0)
+				CAM_ERR(CAM_ACTUATOR, "Actuator Power down failed");
+		} else {
+			CAM_INFO(MI_PARKLENS, "[ParklensLog] parklens has been powerdown");
+		}
+
+		a_ctrl->cam_act_state = CAM_ACTUATOR_ACQUIRE;
+	} else {
+		CAM_INFO(MI_PARKLENS,
+			"[ParklensLog] shut down but not in CONFIG, parklens powerdown: %d",
+			is_parklens_power_down(a_ctrl));
+	}
+	/* xiaomi modify end */
 
 	if (a_ctrl->cam_act_state >= CAM_ACTUATOR_ACQUIRE) {
 		rc = cam_destroy_device_hdl(a_ctrl->bridge_intf.device_hdl);
 		if (rc < 0)
 			CAM_ERR(CAM_ACTUATOR, "destroying  dhdl failed");
-		a_ctrl->bridge_intf.device_hdl = -1;
-		a_ctrl->bridge_intf.link_hdl = -1;
-		a_ctrl->bridge_intf.session_hdl = -1;
+		// a_ctrl->bridge_intf.device_hdl = -1;
+		// a_ctrl->bridge_intf.link_hdl = -1;
+		// a_ctrl->bridge_intf.session_hdl = -1;
 	}
+
+	/* xiaomi add begin */
+	a_ctrl->bridge_intf.device_hdl = -1;
+	a_ctrl->bridge_intf.link_hdl = -1;
+	a_ctrl->bridge_intf.session_hdl = -1;
+	if (PARKLENS_INVALID !=
+		parklens_atomic_read(
+			&(a_ctrl->parklens_ctrl.parklens_state))) {
+		deinit_parklens_info(a_ctrl);
+		CAM_INFO(MI_PARKLENS,
+			"[ParklensLog] parklens is valid, deinit parklens info");
+	}
+	/* xiaomi add end */
 
 	CAM_MEM_FREE(power_info->power_setting);
 	CAM_MEM_FREE(power_info->power_down_setting);
@@ -1027,6 +1290,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	void *arg)
 {
 	int rc = 0;
+	int32_t parklens_power_down = 0; //xiaomi add
 	struct cam_control *cmd = (struct cam_control *)arg;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
@@ -1107,9 +1371,15 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 
 		a_ctrl->is_deferred_park_lens = false;
 		a_ctrl->cam_act_state = CAM_ACTUATOR_ACQUIRE;
+		/* xiaomi dev protection add*/
+		xm_cam_dev_set_init_result(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_INIT_STATUS_SUCCESS);
+		/* xiaomi dev protection add*/
 	}
 		break;
 	case CAM_RELEASE_DEV: {
+		/* xiaomi dev protection add*/
+		xm_cam_dev_set_init_result(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_INIT_STATUS_SUCCESS);
+		/* xiaomi dev protection add*/
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_START) {
 			rc = -EINVAL;
 			CAM_WARN(CAM_ACTUATOR,
@@ -1125,26 +1395,35 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 			goto release_mutex;
 		}
 
+		/* xiaomi modify begin */
+		parklens_power_down = is_parklens_power_down(a_ctrl);
+		CAM_INFO(MI_PARKLENS, "[ParklensLog] CAM_RELEASE_DEV is_parklens_power_down status %d/%d",
+			parklens_power_down,
+			a_ctrl->cam_act_state);
+
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_CONFIG) {
 			if (a_ctrl->is_deferred_park_lens) {
 				CAM_DBG(CAM_ACTUATOR, "Actuator park in deferred task");
 			} else {
-				rc = cam_actuator_power_down(a_ctrl);
-				if (rc < 0) {
-					CAM_ERR(CAM_ACTUATOR,
-						"Actuator Power Down Failed");
-					goto release_mutex;
-				}
+				if (parklens_power_down == false) {
+					rc = cam_actuator_power_down(a_ctrl);
+					if (rc < 0) {
+						CAM_ERR(CAM_ACTUATOR,
+							"Actuator Power Down Failed");
+						goto release_mutex;
+					}
 
-				a_ctrl->cam_act_state = CAM_ACTUATOR_INIT;
-				CAM_MEM_FREE(power_info->power_setting);
-				CAM_MEM_FREE(power_info->power_down_setting);
-				power_info->power_setting = NULL;
-				power_info->power_down_setting = NULL;
-				power_info->power_down_setting_size = 0;
-				power_info->power_setting_size = 0;
+					a_ctrl->cam_act_state = CAM_ACTUATOR_INIT;
+					CAM_MEM_FREE(power_info->power_setting);
+					CAM_MEM_FREE(power_info->power_down_setting);
+					power_info->power_setting = NULL;
+					power_info->power_down_setting = NULL;
+					power_info->power_down_setting_size = 0;
+					power_info->power_setting_size = 0;
+				}
 			}
 		}
+		/* xiaomi modify end */
 
 		if (a_ctrl->bridge_intf.link_hdl != -1) {
 			CAM_ERR(CAM_ACTUATOR,
@@ -1232,15 +1511,21 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 
 		if (a_ctrl->setting_apply_state ==
 			ACT_APPLY_SETTINGS_NOW) {
+			/* xiaomi dev protection modified*/
 			rc = cam_actuator_apply_settings(a_ctrl,
-				&a_ctrl->i2c_data.init_settings);
+				&a_ctrl->i2c_data.init_settings,
+				XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_INIT);
+			/* xiaomi dev protection modified*/
 			if ((rc == -EAGAIN) &&
 			(a_ctrl->io_master_info.master_type == CCI_MASTER)) {
 				CAM_WARN(CAM_ACTUATOR,
 					"CCI HW is in resetting mode:: Reapplying Init settings");
 				usleep_range(1000, 1010);
+				/* xiaomi dev protection modified*/
 				rc = cam_actuator_apply_settings(a_ctrl,
-					&a_ctrl->i2c_data.init_settings);
+					&a_ctrl->i2c_data.init_settings,
+					XM_CMD_DEV_I2C_ACTUATOR_CMD_TYPE_INIT);
+				/* xiaomi dev protection modified*/
 			}
 
 			if (rc < 0)
@@ -1263,7 +1548,9 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	}
 
 release_mutex:
+	mutex_lock(&(a_ctrl->read_buf_lock));
 	cam_sensor_util_release_read_buf(&(a_ctrl->read_buf_list));
+	mutex_unlock(&(a_ctrl->read_buf_lock));
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 
 	return rc;
@@ -1327,4 +1614,478 @@ int32_t cam_actuator_flush_request(struct cam_req_mgr_flush_request *flush_req)
 			flush_req->req_id);
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 	return rc;
+}
+
+/* xiaomi add begin */
+static int32_t parklens_thread_func(void *arg)
+{
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl = NULL;
+	struct cam_actuator_soc_private  *soc_private = NULL;
+	struct cam_sensor_power_ctrl_t *power_info = NULL;
+	struct cam_actuator_ctrl_t *a_ctrl = NULL;
+	struct i2c_settings_array *i2c_set  = NULL;
+	struct i2c_settings_list *i2c_list = NULL;
+	struct i2c_settings_list *i2c_list_last = NULL;
+	struct parklens_wake_lock parklens_wakelock;
+	unsigned short sleeptime = PARKLENS_SLEEPTIME;
+	int parklens_step = 20, i = 0, wait_result = 0;
+	int32_t parklens_opcode = 0, rc = 0;
+	uint32_t size = 0;
+
+	if (!arg) {
+		rc = -EINVAL;
+		parklens_atomic_set(&(parklens_ctrl->exit_result),
+			PARKLENS_EXIT_CREATE_WAKELOCK_FAILED);
+		CAM_ERR(CAM_ACTUATOR, "[ParklensLog] parklens_thread_func arg is NULL");
+	} else {
+		a_ctrl = (struct cam_actuator_ctrl_t *)arg;
+		parklens_ctrl = &(a_ctrl->parklens_ctrl);
+		soc_private =
+			(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
+		i2c_set =
+			(struct i2c_settings_array *)(&(a_ctrl->i2c_data.parklens_settings));
+		power_info = &soc_private->power_info;
+
+ 		rc = parklens_wake_lock_create(&parklens_wakelock,"parklens_wakeup");
+		if (rc < 0) {
+			parklens_atomic_set(&(parklens_ctrl->exit_result),
+				PARKLENS_EXIT_CREATE_WAKELOCK_FAILED);
+			CAM_ERR(MI_PARKLENS, "[ParklensLog] acquire wakelock at parklens thread failed");
+		} else {
+			parklens_wake_lock_acquire(&parklens_wakelock);
+			CAM_DBG(MI_PARKLENS, "[ParklensLog] acquire wakelock at parklens thread");
+		}
+	}
+
+	parklens_event_set(&(parklens_ctrl->start_event));
+	if (rc < 0)
+		goto exit_without_powerdown;;
+
+	CAM_INFO(CAM_ACTUATOR,"[ParklensLog] parklens thread start up");
+
+	while (parklens_step > 0) {
+		if (i2c_set == NULL) {
+			CAM_ERR(MI_PARKLENS,
+				"[ParklensLog] parklens Invalid parklens settings");
+			parklens_atomic_set(
+				&(parklens_ctrl->exit_result),
+				PARKLENS_EXIT_WITHOUT_PARKLENS);
+			goto exit_with_powerdown;
+		} else if (i2c_set->is_settings_valid != 1) {
+			CAM_ERR(MI_PARKLENS,
+				"[ParklensLog] parklens settings is not valid");
+			parklens_atomic_set(
+				&(parklens_ctrl->exit_result),
+				PARKLENS_EXIT_WITHOUT_PARKLENS);
+			goto exit_with_powerdown;
+		} else {
+			i2c_list_last = i2c_list;
+
+			if (i2c_list == NULL)
+				i2c_list = list_first_entry(&(i2c_set->list_head), typeof(*i2c_list), list);
+			else
+				i2c_list = list_next_entry(i2c_list, list);
+
+			if ((i2c_list_last != NULL) && list_entry_is_head(i2c_list, &(i2c_set->list_head), list)) {
+				CAM_DBG(MI_PARKLENS,
+					"[ParklensLog] parklens settings execute done");
+				parklens_atomic_set(
+					&(parklens_ctrl->exit_result),
+					PARKLENS_EXIT_WITH_POWERDOWN);
+				goto exit_with_powerdown;
+			} else {
+				if (i2c_list->i2c_settings.delay > 10 && i2c_list->i2c_settings.delay < 100)
+					sleeptime = i2c_list->i2c_settings.delay;
+				else
+					sleeptime = PARKLENS_SLEEPTIME;
+				i2c_list->i2c_settings.delay = 0;
+
+				rc = cam_actuator_i2c_modes_util(
+					&(a_ctrl->io_master_info),
+					i2c_list);
+				if (rc < 0) {
+					CAM_ERR(MI_PARKLENS,
+						"[ParklensLog] parklens step failed, %d", rc);
+					parklens_atomic_set(
+						&(parklens_ctrl->exit_result),
+						PARKLENS_EXIT_CCI_ERROR);
+					goto exit_with_powerdown;
+				} else
+					CAM_DBG(MI_PARKLENS,
+						"[ParklensLog] parklens step %d success",
+						parklens_step);
+
+				size = i2c_list->i2c_settings.size;
+				for (i = 0; i < size; i++) {
+					CAM_DBG(MI_PARKLENS,
+						"[ParklensLog] parklens addr: %lld, data:%lld, delay:%u",
+						i2c_list->i2c_settings.reg_setting[i].reg_addr,
+						i2c_list->i2c_settings.reg_setting[i].reg_data,
+						sleeptime);
+				}
+				if (1 == parklens_step)
+				{
+					CAM_INFO(MI_PARKLENS, "[ParklensLog] parklens step exceed! power down");
+					parklens_atomic_set(
+						&(parklens_ctrl->exit_result),
+						PARKLENS_EXIT_WITH_POWERDOWN);
+				}
+			}
+		}
+
+		wait_result = parklens_wait_queue_timeout(
+				parklens_ctrl->parklens_wait_queue,\
+				(parklens_atomic_read(&(parklens_ctrl->parklens_opcode)) >= \
+				EXIT_PARKLENS_WITH_POWERDOWN),\
+				msecs_to_jiffies(sleeptime));
+
+		if ((wait_result > 0) || ( (-ERESTARTSYS) == wait_result)) {
+			CAM_DBG(MI_PARKLENS,
+				"[ParklensLog] Parklens time to be delayed %d",
+				wait_result);
+
+			parklens_opcode =
+				parklens_atomic_read(&(parklens_ctrl->parklens_opcode));
+			if (parklens_opcode == EXIT_PARKLENS_WITHOUT_POWERDOWN) {
+				CAM_DBG(MI_PARKLENS,
+					"[ParklensLog] exit parklens thread no need power off");
+				parklens_atomic_set(
+					&(parklens_ctrl->exit_result),
+					PARKLENS_EXIT_WITHOUT_POWERDOWN);
+				goto exit_without_powerdown;
+			} else if (parklens_opcode == EXIT_PARKLENS_WITH_POWERDOWN) {
+				CAM_DBG(MI_PARKLENS,
+					"[ParklensLog] exit parklens thread need power off");
+				parklens_atomic_set(
+					&(parklens_ctrl->exit_result),
+					PARKLENS_EXIT_WITH_POWERDOWN);
+				goto exit_with_powerdown;
+			} else {
+				CAM_ERR(MI_PARKLENS, "[ParklensLog] Invalid opcode for parklens %d",
+					parklens_opcode);
+				continue;
+			}
+		} else {
+			CAM_DBG(MI_PARKLENS, "[ParklensLog] Parklens time out %d", wait_result);
+		}
+		parklens_step--;
+
+		CAM_DBG(MI_PARKLENS,
+			"[ParklensLog] parklens_thread_func arg is %d/%d",\
+			parklens_step,
+			parklens_ctrl->parklens_state);
+	}
+
+exit_with_powerdown:
+	CAM_DBG(MI_PARKLENS,
+		"[ParklensLog] parklens thread exit with power down");
+	CAM_DBG(MI_PARKLENS,
+		"[ParklensLog] parklens thread exit step/result %d/%d",
+		parklens_step,
+		parklens_atomic_read(&(parklens_ctrl->exit_result)));
+
+	if(a_ctrl->io_master_info.master_type == CCI_MASTER)
+	{
+		lock_power_sync_mutex(a_ctrl->io_master_info.cci_client, a_ctrl->io_master_info.cci_client->cci_i2c_master);
+		rc = cam_actuator_power_down(a_ctrl);
+		unlock_power_sync_mutex(a_ctrl->io_master_info.cci_client, a_ctrl->io_master_info.cci_client->cci_i2c_master);
+
+	}
+	else
+	{
+		lock_power_sync_mutex(a_ctrl->io_master_info.cci_client, CCI_MASTER_0);
+		rc = cam_actuator_power_down(a_ctrl);
+		unlock_power_sync_mutex(a_ctrl->io_master_info.cci_client, CCI_MASTER_0);
+	}
+
+	if (rc < 0) {
+		CAM_DBG(MI_PARKLENS,
+			"[ParklensLog] parklens power down failed rc: %d", rc);
+		parklens_atomic_set(
+			&(parklens_ctrl->exit_result),
+			PARKLENS_EXIT_WITH_POWERDOWN_FAILED);
+	}
+
+	kfree(power_info->power_setting);
+	kfree(power_info->power_down_setting);
+	power_info->power_setting = NULL;
+	power_info->power_down_setting = NULL;
+	power_info->power_setting_size = 0;
+	power_info->power_down_setting_size = 0;
+
+exit_without_powerdown:
+	if (parklens_atomic_read(&(parklens_ctrl->exit_result)) <=
+		PARKLENS_EXIT_WITHOUT_POWERDOWN) {
+		CAM_DBG(MI_PARKLENS,
+			"[ParklensLog] parklens thread exit without power down");
+		CAM_DBG(MI_PARKLENS,
+			"[ParklensLog] parklens thread exit step/result %d/%d",
+			parklens_step,
+			parklens_atomic_read(&(parklens_ctrl->exit_result)));
+	}
+
+	rc = delete_request(&(a_ctrl->i2c_data.parklens_settings));
+	if (rc < 0)
+		CAM_ERR(CAM_SENSOR,
+			"[ParklensLog] delete parklens request failed rc: %d", rc);
+
+	parklens_event_set(&(parklens_ctrl->shutdown_event));
+	parklens_wake_lock_release(&parklens_wakelock);
+	parklens_wake_lock_destroy(&parklens_wakelock);
+
+	parklens_exit_thread(true);
+	CAM_INFO(CAM_ACTUATOR,"[ParklensLog] parklens thread end");
+	return 0;
+}
+
+int32_t init_parklens_info(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl;
+
+	if(!a_ctrl) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed: a_ctrl %pK", a_ctrl);
+		return -EINVAL;
+	}
+
+	parklens_ctrl = &(a_ctrl->parklens_ctrl);
+
+	CAM_DBG(MI_PARKLENS, "[ParklensLog] init parklens: %s", a_ctrl->device_name);
+
+	parklens_atomic_set(&(parklens_ctrl->parklens_opcode),
+		ENTER_PARKLENS_WITH_POWERDOWN);
+	parklens_atomic_set(&(parklens_ctrl->exit_result),
+		PARKLENS_ENTER);
+	parklens_atomic_set(&(parklens_ctrl->parklens_state),
+		PARKLENS_INVALID);
+
+	rc = parklens_event_create(&(parklens_ctrl->start_event));
+	if (rc < 0) {
+		CAM_ERR(MI_PARKLENS,
+			"[ParklensLog] failed to create start event for parklens");
+		return rc;
+	}
+
+	rc = parklens_event_create(&(parklens_ctrl->shutdown_event));
+	if (rc < 0) {
+		CAM_ERR(MI_PARKLENS,
+			"[ParklensLog] failed to create shutdown event for parklens");
+		return rc;
+	}
+
+	parklens_init_waitqueue_head(&(parklens_ctrl->parklens_wait_queue));
+	parklens_ctrl->parklens_thread = NULL;
+	parklens_atomic_set(&(parklens_ctrl->parklens_state), PARKLENS_STOP);
+
+	return 0;
+}
+
+int32_t deinit_parklens_info(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl;
+
+	if(!a_ctrl) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed: a_ctrl %pK", a_ctrl);
+		return -EINVAL;
+	}
+
+	CAM_DBG(MI_PARKLENS, "[ParklensLog] deinit parklens: %s", a_ctrl->device_name);
+
+	parklens_ctrl = &(a_ctrl->parklens_ctrl);
+
+	if (PARKLENS_STOP !=
+		parklens_atomic_read(&(parklens_ctrl->parklens_state))) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] deinit parklens in wrong state");
+		return -EINVAL;
+	}
+
+	rc = parklens_event_destroy(&(parklens_ctrl->start_event));
+	if (rc < 0)
+		CAM_ERR(MI_PARKLENS,
+			"[ParklensLog] failed to destroy start event for parklens");
+
+	rc = parklens_event_destroy(&(parklens_ctrl->shutdown_event));
+	if (rc < 0)
+		CAM_ERR(MI_PARKLENS,
+			"[ParklensLog] failed to destroy shutdown event for parklens");
+
+	parklens_atomic_set(&(parklens_ctrl->parklens_opcode),
+		ENTER_PARKLENS_WITH_POWERDOWN);
+	parklens_atomic_set(&(parklens_ctrl->exit_result),
+		PARKLENS_ENTER);
+	parklens_atomic_set(&(parklens_ctrl->parklens_state),
+		PARKLENS_INVALID);
+
+	return 0;
+}
+
+bool is_parklens_power_down(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	bool is_power_down = false;
+	int32_t parklens_state = 0;
+	int32_t parklens_exit_status = 0;
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl;
+
+	if(!a_ctrl) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed: a_ctrl %pK", a_ctrl);
+		return false;
+	}
+
+	parklens_ctrl = &(a_ctrl->parklens_ctrl);
+	parklens_state = parklens_atomic_read(&(parklens_ctrl->parklens_state));
+
+	switch (parklens_state) {
+	case PARKLENS_RUNNING: {
+		CAM_DBG(MI_PARKLENS, "[ParklensLog] parklens is running, no need powerdown");
+		is_power_down = true;
+	}
+		break;
+
+	case PARKLENS_STOP: {
+		parklens_exit_status =
+					parklens_atomic_read(&(parklens_ctrl->exit_result));
+
+		if (parklens_exit_status <= PARKLENS_EXIT_WITHOUT_POWERDOWN) {
+			CAM_DBG(MI_PARKLENS,
+				"[ParklensLog] parklens stop without power down");
+			is_power_down = false;
+		} else {
+			is_power_down = true;
+		}
+	}
+		break;
+
+	case PARKLENS_INVALID: {
+		CAM_DBG(MI_PARKLENS,
+		"[ParklensLog] parklens is not created, power down");
+		is_power_down = false;
+	}
+		break;
+
+	default:
+		CAM_ERR(MI_PARKLENS, "Invalid parklens_state %d", parklens_state);
+	}
+
+	return is_power_down;
+}
+
+int32_t parklens_thread_trigger(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl;
+
+	if(!a_ctrl) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed: a_ctrl %pK", a_ctrl);
+		return -EINVAL;;
+	}
+
+	rc = init_parklens_info(a_ctrl);
+	if(rc < 0){
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed to init parklens info %d", rc);
+		return rc;
+	}
+
+	parklens_ctrl = &(a_ctrl->parklens_ctrl);
+
+	/* intialize parameters of parklens*/
+	parklens_atomic_set(&(parklens_ctrl->parklens_opcode),
+		ENTER_PARKLENS_WITH_POWERDOWN);
+	parklens_atomic_set(&(parklens_ctrl->exit_result),
+		PARKLENS_ENTER);
+	parklens_atomic_set(&(parklens_ctrl->parklens_state),
+		PARKLENS_STOP);
+
+	parklens_ctrl->parklens_thread =
+					parklens_thread_run(parklens_thread_func,
+										a_ctrl,
+										"parklens-thread");
+
+	if (!(parklens_ctrl->parklens_thread)) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] parklens_thread create failed");
+		rc = -ENOMEM;
+		goto deinit_parklens;
+	} else {
+		CAM_DBG(MI_PARKLENS, "[ParklensLog] trigger parklens thread");
+		parklens_wait_single_event(&(parklens_ctrl->start_event),0);
+
+		rc = parklens_atomic_read(&(parklens_ctrl->exit_result));
+		if (rc > PARKLENS_ENTER) {
+			CAM_DBG(MI_PARKLENS, "[ParklensLog] parklens thread execute failed %d", rc);
+			goto clear_thread;
+		} else
+			parklens_atomic_set(&(parklens_ctrl->parklens_state),
+								PARKLENS_RUNNING);
+	}
+
+	return rc;
+
+clear_thread:
+	parklens_wait_single_event(&(parklens_ctrl->shutdown_event),0);
+	rc = parklens_atomic_read(&(parklens_ctrl->exit_result));
+	CAM_DBG(MI_PARKLENS, "[ParklensLog] parklens thread exit: %d", rc);
+	parklens_atomic_set(&(parklens_ctrl->parklens_state),PARKLENS_STOP);
+	parklens_ctrl->parklens_thread = NULL;
+	return rc;
+
+deinit_parklens:
+	deinit_parklens_info(a_ctrl);
+	return rc;
+}
+
+int32_t parklens_thread_stop(
+	struct cam_actuator_ctrl_t *a_ctrl,
+	enum parklens_opcodes opcode)
+{
+	int32_t exit_result = 0;
+	int32_t parklens_state = 0;
+	struct cam_actuator_parklens_ctrl_t *parklens_ctrl;
+
+	if(!a_ctrl) {
+		CAM_ERR(MI_PARKLENS, "[ParklensLog] failed: a_ctrl %pK", a_ctrl);
+		return -EINVAL;
+	}
+
+	parklens_ctrl = &(a_ctrl->parklens_ctrl);
+
+	parklens_state = parklens_atomic_read(&(parklens_ctrl->parklens_state)) ;
+	exit_result = parklens_atomic_read(&(parklens_ctrl->exit_result));
+
+	if (parklens_state != PARKLENS_RUNNING) {
+		CAM_DBG(MI_PARKLENS,
+			"[ParklensLog] parklens thread is in other state: %d", parklens_state);
+		return -EINVAL;
+	} else {
+		if(exit_result != PARKLENS_ENTER) {
+			CAM_DBG(MI_PARKLENS,
+				"[ParklensLog] parklens thread is already end: %d", exit_result);
+		} else {
+			if ((opcode == EXIT_PARKLENS_WITH_POWERDOWN) ||
+				(opcode == EXIT_PARKLENS_WITHOUT_POWERDOWN)) {
+				parklens_atomic_set(&(parklens_ctrl->parklens_opcode), opcode);
+			} else {
+				CAM_DBG(MI_PARKLENS,
+					"[ParklensLog] Invalid stop opcode, stop parklens with power down");
+				parklens_atomic_set(&(parklens_ctrl->parklens_opcode),
+									EXIT_PARKLENS_WITH_POWERDOWN);
+			}
+
+			CAM_DBG(MI_PARKLENS, "[ParklensLog] wait for parklens thread start");
+			parklens_wake_up_interruptible(&(parklens_ctrl->parklens_wait_queue));
+			CAM_DBG(MI_PARKLENS, "[ParklensLog] wake up parklens thread to stop it");
+		}
+
+		parklens_wait_single_event(&(parklens_ctrl->shutdown_event), 0);
+
+		parklens_atomic_set(&(parklens_ctrl->parklens_state), PARKLENS_STOP);
+		parklens_ctrl->parklens_thread = NULL;
+
+		exit_result = parklens_atomic_read(&(parklens_ctrl->exit_result));
+		if(exit_result) {
+			CAM_INFO(MI_PARKLENS, "[ParklensLog] parklens thread exit status: %d", exit_result);
+		} else
+			CAM_ERR(MI_PARKLENS, "[ParklensLog] parklens thread exit failed ! ! !");
+	}
+
+	return exit_result;
 }

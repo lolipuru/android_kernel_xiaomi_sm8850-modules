@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -409,6 +409,7 @@ static struct cam_vfe_bus_ver3_hw_info vfe_lite108x_bus_hw_info = {
 			.line_based               = 1,
 			.mid                      = {34},
 			.num_mid                  = 1,
+			.num_mid                  = 1,
 			.out_type                 = CAM_VFE_BUS_VER3_VFE_OUT_RDI2,
 			.pid_mask                 = BIT_ULL(19) | BIT_ULL(20),
 		},
@@ -454,7 +455,6 @@ static struct cam_vfe_bus_ver3_hw_info vfe_lite108x_bus_hw_info = {
 			.pid_mask                 = BIT_ULL(19) | BIT_ULL(20),
 		},
 	},
-	.bus_err_irq_mask      = { 0xD0000000, 0x0},
 	.valid_wm_mask   = 0x1F,
 	.num_comp_grp    = 5,
 	.support_consumed_addr = true,

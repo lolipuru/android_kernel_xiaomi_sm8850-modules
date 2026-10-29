@@ -12,6 +12,9 @@
 #include "camera_main.h"
 #include "cam_compat.h"
 #include "cam_mem_mgr_api.h"
+/* xiaomi add for cci debug */
+#include "cam_cci_debug_util.h"
+/* xiaomi add for cci debug */
 
 static struct cam_i3c_eeprom_data {
 	struct cam_eeprom_ctrl_t                  *e_ctrl;
@@ -284,6 +287,16 @@ static int cam_eeprom_i2c_component_bind(struct device *dev,
 	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
 	cam_record_bind_latency(drv_name, microsec);
 	of_node_put(np);
+	/* xiaomi add for cci debug start */
+	rc = cam_cci_dev_create_debugfs_entry(e_ctrl->device_name,
+		e_ctrl->soc_info.index, CAM_EEPROM_NAME,
+		&e_ctrl->io_master_info, CCI_MASTER_MAX,
+		&e_ctrl->cci_debug);
+	if (rc) {
+		CAM_WARN(CAM_EEPROM, "debugfs creation failed");
+		rc = 0;
+	}
+	/* xiaomi add for cci debug end */
 
 	return rc;
 free_soc:
@@ -332,6 +345,10 @@ static void cam_eeprom_i2c_component_unbind(struct device *dev,
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
 	mutex_destroy(&(e_ctrl->eeprom_mutex));
 	cam_unregister_subdev(&(e_ctrl->v4l2_dev_str));
+	/* xiaomi add for cci debug start */
+	cam_cci_dev_remove_debugfs_entry((void *)e_ctrl->cci_debug);
+	/* xiaomi add for cci debug end */
+
 	cam_sensor_util_release_resources(&(e_ctrl->io_master_info), soc_info);
 	v4l2_set_subdevdata(&e_ctrl->v4l2_dev_str.sd, NULL);
 	CAM_MEM_FREE(e_ctrl);
@@ -578,6 +595,17 @@ static int cam_eeprom_component_bind(struct device *dev,
 	e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;
 	CAM_DBG(CAM_EEPROM, "Component bound successfully");
 
+	/* xiaomi add for cci debug */
+	rc = cam_cci_dev_create_debugfs_entry(e_ctrl->device_name,
+		e_ctrl->soc_info.index, CAM_EEPROM_NAME,
+		&e_ctrl->io_master_info, e_ctrl->io_master_info.cci_client->cci_i2c_master,
+		&e_ctrl->cci_debug);
+	if (rc) {
+		CAM_WARN(CAM_EEPROM, "debugfs creation failed");
+		rc = 0;
+	}
+	/* xiaomi add for cci debug */
+
 	g_i3c_eeprom_data[e_ctrl->soc_info.index].e_ctrl = e_ctrl;
 	init_completion(&g_i3c_eeprom_data[e_ctrl->soc_info.index].probe_complete);
 	CAM_GET_TIMESTAMP(ts_end);
@@ -616,6 +644,9 @@ static void cam_eeprom_component_unbind(struct device *dev,
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
 	mutex_destroy(&(e_ctrl->eeprom_mutex));
 	cam_unregister_subdev(&(e_ctrl->v4l2_dev_str));
+	/* xiaomi add for cci debug */
+	cam_cci_dev_remove_debugfs_entry((void *)e_ctrl->cci_debug);
+	/* xiaomi add for cci debug */
 	cam_sensor_util_release_resources(&(e_ctrl->io_master_info), soc_info);
 	platform_set_drvdata(pdev, NULL);
 	v4l2_set_subdevdata(&e_ctrl->v4l2_dev_str.sd, NULL);

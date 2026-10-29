@@ -412,10 +412,15 @@ int32_t cam_qup_i2c_write_table(struct camera_io_master *client,
 	}
 
 	buf = kzalloc(write_setting->size*I2C_REG_MAX_BUF_SIZE, GFP_KERNEL|GFP_DMA);
+	// xiaomi modified
 	if (!buf) {
-		CAM_ERR(CAM_SENSOR_IO, "Buffer memory allocation failed");
-		CAM_MEM_FREE(msgs);
-		return -ENOMEM;
+		CAM_ERR(CAM_SENSOR_IO, "kzalloc failed, trying kvcalloc as fallback");
+		buf = kvcalloc(write_setting->size, I2C_REG_MAX_BUF_SIZE, GFP_KERNEL);
+		if (!buf) {
+			CAM_ERR(CAM_SENSOR_IO, "Buffer memory allocation failed");
+			CAM_MEM_FREE(msgs);
+			return -ENOMEM;
+		}
 	}
 
 	if ((write_setting->addr_type <= CAMERA_SENSOR_I2C_TYPE_INVALID

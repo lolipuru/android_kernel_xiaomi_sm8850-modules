@@ -14,7 +14,8 @@
 #include "cam_sensor_io.h"
 
 #define I2C_POLL_TIME_MS 5
-#define MAX_POLL_DELAY_MS 100
+/* xiaomi increase max poll delay */
+#define MAX_POLL_DELAY_MS 200
 
 #define I2C_COMPARE_MATCH 0
 #define I2C_COMPARE_MISMATCH 1
@@ -99,6 +100,25 @@ int32_t cam_cci_i2c_poll(struct cam_sensor_cci_client *client,
 	enum camera_sensor_i2c_type data_type,
 	enum camera_sensor_i2c_type addr_type,
 	uint32_t delay_ms);
+
+// add by xiaomi start
+/**
+ * @client: CCI client structure
+ * @addr: I2C address
+ * @data: I2C data
+ * @data_mask: I2C data mask
+ * @data_type: I2C data type
+ * @addr_type: I2C addr type
+ * @delay_ms: Delay in milli seconds
+ *
+ * This API implements CCI based I2C poll
+ */
+int32_t cam_cci_i2c_poll_not_equal(struct cam_sensor_cci_client *client,
+	uint32_t addr, uint16_t data, uint16_t data_mask,
+	enum camera_sensor_i2c_type data_type,
+	enum camera_sensor_i2c_type addr_type,
+	uint32_t delay_ms);
+// add by xiaomi end
 
 
 /**

@@ -17,18 +17,18 @@
 
 #define CAM_VFE_TOP_MAX_LUT_DUMP_ENTRIES 6
 
+#define CAM_VFE_TOP_LOG_BUF_LEN          1024
+
 #define CAM_VFE_TOP_DEBUG_VEC_ERR_REGS               2
 #define CAM_VFE_TOP_DEBUG_VEC_FIFO_SIZE              4
 #define CAM_VFE_TOP_DEBUG_TIMESTAMP_IRQ_SEL_SHIFT    4
 #define CAM_VFE_TOP_DEBUG_TIMESTAMP_IRQ_CLEAR_SHIFT  6
 
-#define CAM_IFE_HW_CORE_NUM_MAX 0x8
-extern int g_cam_tfe_clk_lvl[CAM_IFE_HW_CORE_NUM_MAX];
-
 struct cam_vfe_top_priv_common {
 	struct cam_isp_resource_node    mux_rsrc[CAM_VFE_TOP_MUX_MAX];
 	uint32_t                        num_mux;
 	uint32_t                        hw_idx;
+	struct cam_axi_vote             final_apply_bw_vote;
 	struct cam_axi_vote             applied_axi_vote;
 	struct cam_axi_vote             agg_incoming_vote;
 	struct cam_axi_vote             req_axi_vote[CAM_VFE_TOP_MUX_MAX];
@@ -48,7 +48,6 @@ struct cam_vfe_top_priv_common {
 	unsigned long                   applied_clk_rate;
 	unsigned long                   req_clk_rate[CAM_VFE_TOP_MUX_MAX];
 	bool                            skip_data_rst_on_stop;
-
 };
 
 struct cam_vfe_top_reg_dump_entry {
@@ -75,13 +74,6 @@ struct cam_vfe_top_dump_data {
 		lut_entry[CAM_VFE_TOP_MAX_LUT_DUMP_ENTRIES];
 };
 
-struct cam_vfe_top_err_irq_desc {
-	uint32_t  bitmask;
-	char     *err_name;
-	char     *desc;
-	char     *debug;
-};
-
 int cam_vfe_top_clock_update(struct cam_vfe_top_priv_common *top_common,
 	void *cmd_args, uint32_t arg_size);
 
@@ -104,8 +96,5 @@ int cam_vfe_top_apply_clk_bw_update(
 int cam_vfe_top_apply_clock_start_stop(struct cam_vfe_top_priv_common *top_common);
 
 int cam_vfe_top_apply_bw_start_stop(struct cam_vfe_top_priv_common *top_common);
-
-int cam_vfe_top_print_error_info(struct cam_vfe_top_err_irq_desc *err_desc,
-	uint32_t status, uint32_t num_errors, uint32_t index);
 
 #endif /* _CAM_VFE_TOP_COMMON_H_ */

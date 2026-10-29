@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_COMPAT_H_
@@ -167,20 +167,10 @@ int16_t cam_get_gpio_counts(struct cam_hw_soc_info *soc_info);
 uint16_t cam_get_named_gpio(struct cam_hw_soc_info *soc_info,
 	int index);
 
-void cam_compat_delete_timer_sync(struct timer_list *sync_timer);
-
 #if IS_REACHABLE(CONFIG_INTERCONNECT_QCOM)
 inline struct icc_path *cam_icc_get_path(struct device *dev,
 	const int src_id, const int dst_id, const char *path_name, bool use_path_name);
 #endif
-void cam_hrtimer_setup(struct hrtimer *on_timer,
-	struct hrtimer *off_timer,
-	enum hrtimer_restart (*timer_func_on)(struct hrtimer *timer),
-	enum hrtimer_restart (*timer_func_off)(struct hrtimer *timer));
-
-void __iomem *cam_compat_ioremap(bool mem_block_rw_prop,
-	unsigned long mem_block_start,
-	unsigned long mem_block_size);
 
 #if IS_REACHABLE(CONFIG_DMABUF_HEAPS)
 #ifdef CONFIG_ARCH_QTI_VM

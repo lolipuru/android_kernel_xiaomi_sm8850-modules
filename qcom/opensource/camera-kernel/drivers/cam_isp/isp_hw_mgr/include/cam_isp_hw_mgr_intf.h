@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ISP_HW_MGR_INTF_H_
@@ -14,7 +14,6 @@
 #include "cam_hw_mgr_intf.h"
 #include "cam_packet_util.h"
 #include "cam_cpas_api.h"
-#include "cam_worker_wrapper.h"
 
 /* MAX IFE instance */
 #define CAM_IFE_HW_NUM_MAX               8
@@ -500,7 +499,6 @@ struct cam_isp_hw_eof_event_data {
  * @enable_req_dump:       Enable request dump on HW errors
  * @try_internal_recovery: Enable internal recovery on HW errors
  * @print_hw_info:         Indicate if debugging needs in Driver
- * @is_no_fault_ctx:       Indicate if current context is non faulting one while handling error
  */
 struct cam_isp_hw_error_event_data {
 	uint32_t             error_type;
@@ -509,7 +507,6 @@ struct cam_isp_hw_error_event_data {
 	bool                 enable_req_dump;
 	bool                 try_internal_recovery;
 	bool                 print_hw_info;
-	bool                 is_no_fault_ctx;
 };
 
 /**
@@ -601,7 +598,7 @@ struct cam_isp_hw_per_req_info {
  * @eof_irq_enable:        To enable EOF irq for EOF triggered requests
  * @packet_op_code:        Packet opcode
  * @last_cdm_done:         Last cdm done request
- * @ctx_info:              Gives info about context(RDI, PIX, bubble recovery, worker type)
+ * @ctx_info:              Gives info about context(RDI, PIX, bubble recovery)
  * @sof_ts:                SOF timestamps (current, boot and previous)
  * @default_cfg_params:    The params for default config
  * @drv_info:              DRV info for corresponding req
@@ -617,9 +614,8 @@ struct cam_isp_hw_cmd_args {
 		uint32_t                      packet_op_code;
 		uint64_t                      last_cdm_done;
 		struct {
-			uint64_t                     type;
-			bool                         bubble_recover_dis;
-			enum cam_worker_wrapper_type worker_type;
+			uint64_t                  type;
+			bool                      bubble_recover_dis;
 		} ctx_info;
 		struct {
 			uint64_t                  curr;

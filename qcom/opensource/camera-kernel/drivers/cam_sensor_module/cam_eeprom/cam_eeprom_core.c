@@ -62,7 +62,19 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			i2c_reg_settings.size = 1;
 			i2c_reg_array.reg_addr = emap[j].page.addr;
 			i2c_reg_array.reg_data = emap[j].page.data;
-			i2c_reg_array.delay = emap[j].page.delay;
+			//i2c_reg_array.delay = emap[j].page.delay;
+			/* xiaomi add */
+			if(CAMERA_SENSOR_WAIT_OP_SW_UCND == emap[j].page.delay_type) {
+				i2c_reg_settings.delay = emap[j].page.delay;
+				i2c_reg_array.delay = 0;
+			} else {
+				i2c_reg_settings.delay = 0;
+				i2c_reg_array.delay = emap[j].page.delay;
+			}
+			CAM_DBG(CAM_EEPROM, "emap[%d] HWdelay = %d, SWdelay = %d",j,
+				i2c_reg_array.delay,
+				i2c_reg_settings.delay);
+			/* xiaomi add */
 			i2c_reg_settings.reg_setting = &i2c_reg_array;
 			rc = camera_io_dev_write(&e_ctrl->io_master_info,
 				&i2c_reg_settings);
@@ -151,6 +163,13 @@ static int cam_eeprom_power_up(struct cam_eeprom_ctrl_t *e_ctrl,
 	int32_t                                 rc = 0;
 	struct cam_hw_soc_info                 *soc_info = &e_ctrl->soc_info;
 	struct completion                      *i3c_probe_completion = NULL;
+	struct timespec64                       ts1, ts2; // xiaomi add
+	long                                    microsec = 0; // xiaomi add
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts1);
+	CAM_DBG(MI_DEBUG, "%s start power_up", e_ctrl->device_name);
+	/* xiaomi add end */
 
 	/* Parse and fill vreg params for power up settings */
 	rc = msm_camera_fill_vreg_params(
@@ -191,6 +210,13 @@ static int cam_eeprom_power_up(struct cam_eeprom_ctrl_t *e_ctrl,
 		goto cci_failure;
 	}
 
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts2);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts1, ts2, microsec);
+	CAM_DBG(MI_DEBUG, "%s end power_up, occupy time is: %ld ms",
+		e_ctrl->device_name, microsec/1000);
+	/* xiaomi add end */
+
 	return rc;
 cci_failure:
 	if (cam_sensor_util_power_down(power_info, soc_info))
@@ -211,6 +237,13 @@ static int cam_eeprom_power_down(struct cam_eeprom_ctrl_t *e_ctrl)
 	struct cam_hw_soc_info         *soc_info;
 	struct cam_eeprom_soc_private  *soc_private;
 	int                             rc = 0;
+	struct timespec64               ts1, ts2; // xiaomi add
+	long                            microsec = 0; // xiaomi add
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts1);
+	CAM_DBG(MI_DEBUG, "%s start power_down", e_ctrl->device_name);
+	/* xiaomi add end */
 
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "failed: e_ctrl %pK", e_ctrl);
@@ -233,6 +266,13 @@ static int cam_eeprom_power_down(struct cam_eeprom_ctrl_t *e_ctrl)
 	}
 
 	camera_io_release(&(e_ctrl->io_master_info));
+
+	/* xiaomi add begin */
+	CAM_GET_TIMESTAMP(ts2);
+	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts1, ts2, microsec);
+	CAM_DBG(MI_DEBUG, "%s end power_down, occupy time is: %ld ms",
+		e_ctrl->device_name, microsec/1000);
+	/* xiaomi add end */
 
 	return rc;
 }
@@ -534,6 +574,7 @@ static int32_t cam_eeprom_parse_memory_map(
 			map[*num_map - 1].mem.delay = i2c_uncond_wait->delay;
 			map[*num_map - 1].page.delay = i2c_uncond_wait->delay;
 			map[*num_map - 1].pageen.delay = i2c_uncond_wait->delay;
+			map[*num_map - 1].page.delay_type = generic_op_code; /* xiaomi add */
 		} else if (generic_op_code ==
 			CAMERA_SENSOR_WAIT_OP_COND) {
 			i2c_poll = (struct cam_cmd_conditional_wait *)cmd_buf;

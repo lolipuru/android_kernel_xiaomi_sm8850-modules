@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CSIPHY_DEV_H_
@@ -42,25 +42,24 @@
 #define CAM_CSIPHY_RX_CLK_SRC       "cphy_rx_clk_src"
 #define CAM_CSIPHY_TIMER_CLK_SRC    "phytimer_clk_src"
 
-#define CSIPHY_DEFAULT_PARAMS              BIT(0)
-#define CSIPHY_LANE_ENABLE                 BIT(1)
-#define CSIPHY_SETTLE_CNT_LOWER_BYTE       BIT(2)
-#define CSIPHY_SETTLE_CNT_HIGHER_BYTE      BIT(3)
-#define CSIPHY_2PH_REGS                    BIT(4)
-#define CSIPHY_3PH_REGS                    BIT(5)
-#define CSIPHY_SKEW_CAL                    BIT(6)
-#define CSIPHY_2PH_COMBO_REGS              BIT(7)
-#define CSIPHY_3PH_COMBO_REGS              BIT(8)
-#define CSIPHY_2PH_3PH_COMBO_REGS          BIT(9)
-#define CSIPHY_AUXILIARY_SETTING           BIT(10)
-#define CSIPHY_CDR_LN_SETTINGS             BIT(11)
-#define CSIPHY_SHORT_CHANNEL_PARAMS        BIT(12)
-#define CSIPHY_STANDARD_CHANNEL_PARAMS     BIT(13)
-#define CSIPHY_DNP_PARAMS                  BIT(14)
-#define CSIPHY_2PH_SEC_CLK_LN_SETTINGS     BIT(15)
-#define CSIPHY_EDGE_CASE_REG_ADDR_SETTING  BIT(16)
+#define CSIPHY_DEFAULT_PARAMS            BIT(0)
+#define CSIPHY_LANE_ENABLE               BIT(1)
+#define CSIPHY_SETTLE_CNT_LOWER_BYTE     BIT(2)
+#define CSIPHY_SETTLE_CNT_HIGHER_BYTE    BIT(3)
+#define CSIPHY_2PH_REGS                  BIT(4)
+#define CSIPHY_3PH_REGS                  BIT(5)
+#define CSIPHY_SKEW_CAL                  BIT(6)
+#define CSIPHY_2PH_COMBO_REGS            BIT(7)
+#define CSIPHY_3PH_COMBO_REGS            BIT(8)
+#define CSIPHY_2PH_3PH_COMBO_REGS        BIT(9)
+#define CSIPHY_AUXILIARY_SETTING         BIT(10)
+#define CSIPHY_CDR_LN_SETTINGS           BIT(11)
+#define CSIPHY_SHORT_CHANNEL_PARAMS      BIT(12)
+#define CSIPHY_STANDARD_CHANNEL_PARAMS   BIT(13)
+#define CSIPHY_DNP_PARAMS                BIT(14)
+#define CSIPHY_2PH_SEC_CLK_LN_SETTINGS   BIT(15)
 
-#define CSIPHY_MAX_INSTANCES_PER_PHY         3
+#define CSIPHY_MAX_INSTANCES_PER_PHY     3
 
 #define CAM_CSIPHY_MAX_DPHY_LANES            4
 #define CAM_CSIPHY_MAX_CPHY_LANES            3
@@ -68,7 +67,6 @@
 #define CAM_CSIPHY_MAX_CPHY_DPHY_COMBO_LN    3
 #define CAM_CSIPHY_MAX_DATARATE_VARIANTS     3
 #define CSIPHY_QMARGIN_CMN_STATUS_REG_COUNT  11
-#define CAM_MAX_PHYS_PER_CP_CTRL_REG         4
 
 #define DPHY_LANE_0    BIT(0)
 #define CPHY_LANE_0    BIT(1)
@@ -264,6 +262,10 @@ struct csiphy_device;
  * @data_rate_reg_array        : array of data rate specific reg value pairs
  */
 struct data_rate_reg_info_t {
+	// XIAOMI ADD: FeatureAutoEQ
+	uint8_t this_setting_max_choice;
+	uint8_t this_setting_current_choice;
+	// END: FeatureAutoEQ
 	uint64_t bandwidth;
 	ssize_t  data_rate_reg_array_size;
 	ssize_t  common_ctrl_reg_array_size;
@@ -318,7 +320,6 @@ struct bist_reg_settings_t {
  * @getclockvoting            : function pointer which is used to find the clock
  *                               voting for the sensor output data rate
  * @data_rate_settings_table  : Table which maintains the resgister settings specific to data rate
- * @csiphy_reg_addr_func      : CSIPhy register address function pointer
  */
 struct csiphy_ctrl_t {
 	struct csiphy_reg_parms_t *csiphy_reg;
@@ -334,7 +335,6 @@ struct csiphy_ctrl_t {
 	uint32_t csiphy_ln_offsets[CAM_CSIPHY_MAX_DPHY_LANES + CAM_CSIPHY_MAX_CPHY_LANES + 1];
 	enum   cam_vote_level (*getclockvoting)(struct csiphy_device *phy_dev, int32_t index);
 	struct data_rate_settings_t *data_rates_settings_table;
-	uint32_t (*csiphy_reg_addr_func)(uint32_t partial_offset, uint32_t lane_offset);
 };
 
 /**
@@ -361,6 +361,7 @@ struct csiphy_ctrl_t {
  * @channel_type               :  Channel type for different channel settings
  * @t3_prepare                 :  T3-Prepare in ns
  * @t3_preamble                :  T3-Preamble in ns
+ * @force_aon_eq               :  force aon eq for rfi test
  */
 struct cam_csiphy_param {
 	uint16_t                         lane_assign;
@@ -383,6 +384,13 @@ struct cam_csiphy_param {
 	uint32_t                         channel_type;
 	uint32_t                         t3_prepare;
 	uint32_t                         t3_preamble;
+	uint32_t                         force_aon_eq; // XIAOMI ADD: Force AON EQ
+};
+
+struct csiphy_work_queue {
+	struct csiphy_device *csiphy_dev;
+	int32_t acquire_idx;
+	struct work_struct work;
 };
 
 /**
@@ -514,7 +522,23 @@ struct csiphy_device {
 	bool                                     skip_aux_settings;
 	bool                                     domain_id_security;
 	uint16_t                                 preamble_enable;
+	// XIAOMI ADD: FeatureAutoEQ
+	char                                     phy_dts_name[CAM_PHY_DTS_NAME];
+	uint8_t                                  device_has_customized;
+	// END: FeatureAutoEQ
 };
+
+// XIAOMI ADD: Force AON EQ Start
+/**
+ * struct csiphy_aon_ctrl_t
+ * @csiphy_aon_reg : Parameters of aon eq
+ * @aon_reg_size   : aon eq array size
+ */
+struct csiphy_aon_ctrl_t {
+	struct csiphy_reg_t *csiphy_aon_reg;
+	uint32_t             aon_reg_size;
+};
+// END: Force AON EQ
 
 /**
  * @brief : API to register CSIPHY hw to platform framework.

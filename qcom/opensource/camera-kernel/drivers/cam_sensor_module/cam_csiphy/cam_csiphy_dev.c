@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_csiphy_dev.h"
@@ -51,16 +51,6 @@ static int cam_csiphy_format_secure_phy_lane_info(
 {
 	struct cam_csiphy_param *param;
 	uint64_t phy_lane_sel_mask = 0;
-    uint32_t cpas_version;
-    uint32_t bit_offset_bet_phys_in_cp_ctrl;
-    int rc = 0;
-
-    if (csiphy_dev->soc_info.index > MAX_SUPPORTED_PHY_IDX) {
-        CAM_ERR(CAM_CSIPHY, "Invalid PHY index: %u",
-            csiphy_dev->soc_info.index);
-            return -EINVAL;
-    }
-    rc = cam_cpas_get_cpas_hw_version(&cpas_version);
 
 	param = &csiphy_dev->csiphy_info[offset];
 
@@ -71,6 +61,7 @@ static int cam_csiphy_format_secure_phy_lane_info(
 			phy_lane_sel_mask |= LANE_1_SEL;
 		if (param->lane_enable & CPHY_LANE_2)
 			phy_lane_sel_mask |= LANE_2_SEL;
+		phy_lane_sel_mask <<= CPHY_LANE_SELECTION_SHIFT;
 	} else {
 		if (param->lane_enable & DPHY_LANE_0)
 			phy_lane_sel_mask |= LANE_0_SEL;
@@ -80,47 +71,22 @@ static int cam_csiphy_format_secure_phy_lane_info(
 			phy_lane_sel_mask |= LANE_2_SEL;
 		if (param->lane_enable & DPHY_LANE_3)
 			phy_lane_sel_mask |= LANE_3_SEL;
+		phy_lane_sel_mask <<= DPHY_LANE_SELECTION_SHIFT;
+	}
+	if (csiphy_dev->soc_info.index > MAX_SUPPORTED_PHY_IDX) {
+		CAM_ERR(CAM_CSIPHY, "Invalid PHY index: %u",
+			csiphy_dev->soc_info.index);
+			return -EINVAL;
 	}
 
-	switch (cpas_version) {
-	case CAM_CPAS_TITAN_662_V100:
-	case CAM_CPAS_TITAN_640_V210:
-		bit_offset_bet_phys_in_cp_ctrl =
-			CAM_CSIPHY_MAX_DPHY_LANES + CAM_CSIPHY_MAX_CPHY_LANES + 1;
-		break;
-	default:
-		bit_offset_bet_phys_in_cp_ctrl =
-			CAM_CSIPHY_MAX_DPHY_LANES + CAM_CSIPHY_MAX_CPHY_LANES;
-	}
+	phy_lane_sel_mask |= BIT(csiphy_dev->soc_info.index);
+	*mask = phy_lane_sel_mask;
 
-	if ((cpas_version == CAM_CPAS_TITAN_662_V100) ||
-		(cpas_version == CAM_CPAS_TITAN_640_V210)) {
-		if (csiphy_dev->soc_info.index < CAM_MAX_PHYS_PER_CP_CTRL_REG) {
-			phy_lane_sel_mask = phy_lane_sel_mask <<
-			((csiphy_dev->soc_info.index * bit_offset_bet_phys_in_cp_ctrl) +
-			(!param->csiphy_3phase) *
-			(CAM_CSIPHY_MAX_CPHY_LANES));
-		} else {
-			phy_lane_sel_mask = phy_lane_sel_mask <<
-			((csiphy_dev->soc_info.index - CAM_MAX_PHYS_PER_CP_CTRL_REG) *
-			bit_offset_bet_phys_in_cp_ctrl +
-			(!param->csiphy_3phase) *
-			(CAM_CSIPHY_MAX_CPHY_LANES));
-		}
-		*mask = phy_lane_sel_mask;
-	} else {
-		if (param->csiphy_3phase)
-			phy_lane_sel_mask = phy_lane_sel_mask << CPHY_LANE_SELECTION_SHIFT;
-		else
-			phy_lane_sel_mask = phy_lane_sel_mask << DPHY_LANE_SELECTION_SHIFT;
-
-		phy_lane_sel_mask |= BIT(csiphy_dev->soc_info.index);
-		*mask = phy_lane_sel_mask;
-	}
-	CAM_INFO(CAM_CSIPHY, "Formatted PHY[%u] phy_lane_sel_mask: 0x%llx",
+	CAM_DBG(CAM_CSIPHY, "Formatted PHY[%u] phy_lane_sel_mask: 0x%llx",
 		csiphy_dev->soc_info.index, *mask);
 
 	return 0;
+
 }
 
 static int cam_csiphy_get_session_index(struct csiphy_device *csiphy_dev,

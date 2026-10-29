@@ -19,7 +19,11 @@
  * CRC error threshold is set to be 1% of frame width and
  * this macro is used as divisor in calculation
  */
-#define CAM_IFE_CSID_MAX_CRC_ERR_DIVISOR                  100
+#define CAM_IFE_CSID_MAX_CRC_ERR_DIVISOR                  65535 //changed by xiaomi
+/*add by xiaomi start*/
+#define CAM_IFE_CSID_MAX_CRC_ERR_DIVISOR_XIAOMI           65535
+#define CAM_IFE_CSID_MIN_CRC_ERR_DIVISOR_XIAOMI           1
+/*add by xiaomi end*/
 
 #define CAM_IFE_CSID_HW_CAP_IPP                           0x1
 #define CAM_IFE_CSID_HW_CAP_RDI                           0x2
@@ -330,7 +334,6 @@ struct cam_ife_csid_csi2_rx_reg_info {
 	uint32_t de_scramble_type0_cfg1_addr;
 
 	/*configurations */
-	uint32_t phy_tpg_base_id;
 	uint32_t rst_srb_all;
 	uint32_t rst_done_shift_val;
 	uint32_t irq_mask_all;
@@ -351,7 +354,6 @@ struct cam_ife_csid_csi2_rx_reg_info {
 	uint32_t dyn_sensor_switch_shift_en;
 	uint32_t rup_aup_latch_shift;
 	bool     rup_aup_latch_supported;
-	bool     need_to_sel_tpg_mux;
 	uint32_t phy_num_mask;
 	uint32_t vc_mask;
 	uint32_t wc_mask;
@@ -528,33 +530,6 @@ struct cam_ife_csid_rx_cfg  {
 	bool                            dynamic_sensor_switch_en;
 };
 
-/**
- * struct cam_ife_csid_secure_info: Contains all relevant info to be
- *                                  programmed for targets supporting
- *                                  this feature
- * @phy_sel:          Intermediate value for this mask. CSID passes
- *                    phy_sel.This variable's position at the top is to
- *                    be left unchanged, to have it be used correctly
- *                    in the cam_subdev_notify_message callback for
- *                    csiphy
- * @lane_cfg:         This value is similar to lane_assign in the PHY
- *                    driver, and is used to identify the particular
- *                    PHY instance with which this IFE session is
- *                    connected to.
- * @vc_mask:          Virtual channel masks (Unused for mobile usecase)
- * @csid_hw_idx_mask: Bit position denoting CSID(s) in use for secure
- *                    session
- * @cdm_hw_idx_mask:  Bit position denoting CDM in use for secure
- *                    session
- */
-struct cam_ife_csid_secure_info {
-	uint32_t phy_sel;
-	uint32_t lane_cfg;
-	uint64_t vc_mask;
-	uint32_t csid_hw_idx_mask;
-	uint32_t cdm_hw_idx_mask;
-};
-
 int cam_ife_csid_is_pix_res_format_supported(
 	uint32_t in_format);
 
@@ -597,4 +572,7 @@ int cam_ife_csid_get_base(struct cam_hw_soc_info *soc_info,
 char *cam_ife_csid_reset_type_to_string(enum cam_ife_csid_reset_type reset_type);
 
 uint8_t **cam_ife_csid_get_irq_reg_tag_ptr(void);
+/* xiaomi add mipi_error_flag begin */
+void count_mipi_error(uint32_t res_type);
+/* xiaomi add mipi_error_flag end */
 #endif /*_CAM_IFE_CSID_COMMON_H_ */

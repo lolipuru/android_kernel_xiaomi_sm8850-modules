@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_LRME_HW_CORE_H_
@@ -20,13 +20,14 @@
 #include "cam_cdm_intf_api.h"
 #include "cam_lrme_hw_intf.h"
 #include "cam_lrme_hw_soc.h"
+#include "cam_req_mgr_workq.h"
 
 #define CAM_LRME_HW_RESET_TIMEOUT 3000
 
 #define CAM_LRME_BUS_RD_MAX_CLIENTS 2
 #define CAM_LRME_BUS_WR_MAX_CLIENTS 2
 
-#define CAM_LRME_HW_WORKER_NUM_TASK 30
+#define CAM_LRME_HW_WORKQ_NUM_TASK 30
 
 #define CAM_LRME_TOP_IRQ_MASK          0x19
 #define CAM_LRME_WE_IRQ_MASK_0         0x2
@@ -112,8 +113,8 @@ enum cam_lrme_core_state {
  * @hw_caps        : Hardware capabilities
  * @state          : Hardware state
  * @reset_complete : Reset completion
- * @worker_ctx     : Hardware worker to handle irq events
- * @work_data      : Work data used by hardware worker
+ * @work           : Hardware workqueue to handle irq events
+ * @work_data      : Work data used by hardware workqueue
  * @hw_mgr_cb      : Hw manager callback
  * @req_proc       : Pointer to the processing frame request
  * @req_submit     : Pointer to the frame request waiting for processing
@@ -127,8 +128,8 @@ struct cam_lrme_core {
 	struct cam_lrme_dev_cap           hw_caps;
 	enum cam_lrme_core_state          state;
 	struct completion                 reset_complete;
-	void                             *worker_ctx;
-	struct cam_lrme_hw_work_data      work_data[CAM_LRME_HW_WORKER_NUM_TASK];
+	struct cam_req_mgr_core_workq    *work;
+	struct cam_lrme_hw_work_data      work_data[CAM_LRME_HW_WORKQ_NUM_TASK];
 	struct cam_lrme_hw_cmd_set_cb     hw_mgr_cb;
 	struct cam_lrme_frame_request    *req_proc;
 	struct cam_lrme_frame_request    *req_submit;

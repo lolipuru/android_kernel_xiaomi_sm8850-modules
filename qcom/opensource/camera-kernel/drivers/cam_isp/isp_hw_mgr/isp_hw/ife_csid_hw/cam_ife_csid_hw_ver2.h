@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_IFE_CSID_HW_VER2_H_
@@ -264,7 +264,8 @@ struct cam_ife_csid_ver2_rup_aup_mask {
  * @qcfa_bin    :           qcfa binning enable/disable on path
  * @hor_ver_bin :           horizontal vertical binning enable/disable on path
  * @num_bytes_out:          Number of bytes out
- * @irq_handle:             IRQ handle
+ * @high_pri_irq_handle:    High priority IRQ handle
+ * @low_pri_irq_handle:     Low priority IRQ handle
  * @err_irq_handle:         Error IRQ handle
  * @discard_irq_handle:     IRQ handle for SOF when discarding initial frames
  * @irq_reg_idx:            IRQ Reg index
@@ -314,7 +315,8 @@ struct cam_ife_csid_ver2_path_cfg {
 	uint32_t                             hor_ver_bin;
 	uint32_t                             num_bytes_out;
 	uint32_t                             top_irq_handle;
-	uint32_t                             irq_handle;
+	uint32_t                             high_pri_irq_handle;
+	uint32_t                             low_pri_irq_handle;
 	uint32_t                             err_irq_handle;
 	uint32_t                             discard_irq_handle;
 	uint32_t                             irq_reg_idx;
@@ -684,8 +686,6 @@ struct cam_ife_csid_ver2_common_reg_info {
 	bool     camif_irq_support;
 	bool     ts_comb_vcdt_en;
 	bool     direct_cid_config;
-	bool     no_fault_stream_err_en;
-	uint32_t no_fault_irq_set_mask;
 	uint32_t drv_rup_en_val_map[CAM_IFE_PIX_PATH_RES_MAX];
 	uint32_t drv_path_idle_en_val_map[CAM_ISP_MAX_PATHS];
 	uint32_t path_domain_id_cfg0;
@@ -713,7 +713,6 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t format_measure_width_shift_val;
 	uint32_t format_measure_max_hbi_shift;
 	uint32_t format_measure_min_hbi_mask;
-	uint32_t format_measure_live_cnt_shift_val;
 	uint32_t measure_en_hbi_vbi_cnt_mask;
 	uint32_t measure_pixel_line_en_mask;
 	uint32_t ipp_irq_mask_all;
@@ -728,6 +727,33 @@ struct cam_ife_csid_ver2_common_reg_info {
 	uint32_t decode_format_payload_only;
 	uint32_t capabilities;
 	uint32_t sync_reset_ctrl_testbus_val;
+};
+
+/**
+ * struct cam_ife_csid_secure_info: Contains all relevant info to be
+ *                                  programmed for targets supporting
+ *                                  this feature
+ * @phy_sel:          Intermediate value for this mask. CSID passes
+ *                    phy_sel.This variable's position at the top is to
+ *                    be left unchanged, to have it be used correctly
+ *                    in the cam_subdev_notify_message callback for
+ *                    csiphy
+ * @lane_cfg:         This value is similar to lane_assign in the PHY
+ *                    driver, and is used to identify the particular
+ *                    PHY instance with which this IFE session is
+ *                    connected to.
+ * @vc_mask:          Virtual channel masks (Unused for mobile usecase)
+ * @csid_hw_idx_mask: Bit position denoting CSID(s) in use for secure
+ *                    session
+ * @cdm_hw_idx_mask:  Bit position denoting CDM in use for secure
+ *                    session
+ */
+struct cam_ife_csid_secure_info {
+	uint32_t phy_sel;
+	uint32_t lane_cfg;
+	uint64_t vc_mask;
+	uint32_t csid_hw_idx_mask;
+	uint32_t cdm_hw_idx_mask;
 };
 
 struct cam_ife_csid_ver2_reg_info {
@@ -797,7 +823,7 @@ struct cam_ife_csid_ver2_reg_info {
  * @clk_rate:                 clk rate for csid hw
  * @res_type:                 cur res type for active hw
  * @dual_core_idx:            core idx in case of dual csid
- * @worker_ctx:               Worker for irq events
+ * @tasklet:                  Tasklet for irq events
  * @reset_irq_handle:         Reset irq handle
  * @buf_done_irq_handle:      Buf done irq handle
  * @top_err_irq_handle:       Top Err IRQ handle
@@ -815,7 +841,8 @@ struct cam_ife_csid_ver2_reg_info {
  *
  */
 struct cam_ife_csid_ver2_hw {
-	struct cam_isp_resource_node           path_res[CAM_IFE_PIX_PATH_RES_MAX];
+	struct cam_isp_resource_node           path_res
+						    [CAM_IFE_PIX_PATH_RES_MAX];
 	struct cam_ife_csid_cid_data           cid_data[CAM_IFE_CSID_CID_MAX];
 	struct cam_ife_csid_ver2_top_cfg       top_cfg;
 	struct cam_ife_csid_ver2_rx_cfg        rx_cfg;
@@ -823,8 +850,10 @@ struct cam_ife_csid_ver2_hw {
 	struct cam_ife_csid_hw_flags           flags;
 	struct cam_ife_csid_ver2_debug_info    debug_info;
 	struct cam_ife_csid_timestamp          timestamp;
-	struct cam_ife_csid_ver2_evt_payload   rx_evt_payload[CAM_IFE_CSID_VER2_PAYLOAD_MAX];
-	struct cam_ife_csid_ver2_evt_payload   path_evt_payload[CAM_IFE_CSID_VER2_PAYLOAD_MAX];
+	struct cam_ife_csid_ver2_evt_payload   rx_evt_payload[
+						CAM_IFE_CSID_VER2_PAYLOAD_MAX];
+	struct cam_ife_csid_ver2_evt_payload   path_evt_payload[
+						CAM_IFE_CSID_VER2_PAYLOAD_MAX];
 	struct list_head                       rx_free_payload_list;
 	struct list_head                       path_free_payload_list;
 	spinlock_t                             lock_state;
@@ -841,11 +870,12 @@ struct cam_ife_csid_ver2_hw {
 	struct cam_ife_csid_core_info         *core_info;
 	void                                  *token;
 	cam_hw_mgr_event_cb_func               event_cb;
-	uint8_t                                log_buf[CAM_IFE_CSID_LOG_BUF_LEN];
+	uint8_t                                log_buf
+						[CAM_IFE_CSID_LOG_BUF_LEN];
 	uint64_t                               clk_rate;
 	uint32_t                               res_type;
 	uint32_t                               dual_core_idx;
-	void                                  *worker_ctx;
+	void                                  *tasklet;
 	int                                    reset_irq_handle;
 	int                                    buf_done_irq_handle;
 	int                                    top_err_irq_handle

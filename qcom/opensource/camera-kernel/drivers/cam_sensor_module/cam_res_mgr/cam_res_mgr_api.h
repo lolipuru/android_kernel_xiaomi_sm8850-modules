@@ -6,8 +6,6 @@
 #ifndef __CAM_RES_MGR_API_H__
 #define __CAM_RES_MGR_API_H__
 
-#include "cam_soc_util.h"
-
 #include <linux/leds.h>
 
 /**
@@ -57,7 +55,7 @@ void cam_res_mgr_led_trigger_event(struct led_trigger *trig,
  * @return Status of operation. False if not shared, true otherwise.
  */
 bool cam_res_mgr_util_check_if_gpio_is_shared(
-	struct cam_soc_gpio *gpio_tbl, uint8_t size);
+	struct gpio *gpio_tbl, uint8_t size);
 
 /**
  * @brief: Request a gpio
@@ -87,7 +85,19 @@ int cam_res_mgr_gpio_request(struct device *dev, unsigned int gpio,
  * @return Status of operation. Negative in case of error. Zero otherwise.
  */
 void cam_res_mgr_gpio_free_arry(struct device *dev,
-	const struct cam_soc_gpio *array, size_t num);
+	const struct gpio *array, size_t num);
+
+/**
+ * @brief: Get GPIO power level
+ *
+ *  Add ref count support for shared GPIOs.
+ *
+ * @gpio   : The GPIO number
+ *
+ * @return Status of operation. Negative in case of error. Zero otherwise.
+ * -EINVAL will be returned if the gpio can't be found in gpio_res_list.
+ */
+int cam_res_mgr_gpio_get_value(unsigned int gpio);
 
 /**
  * @brief: Set GPIO power level

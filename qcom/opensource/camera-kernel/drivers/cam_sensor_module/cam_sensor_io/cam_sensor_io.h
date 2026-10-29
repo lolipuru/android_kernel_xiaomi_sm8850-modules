@@ -130,6 +130,25 @@ int32_t camera_io_dev_poll(struct camera_io_master *io_master_info,
 	enum camera_sensor_i2c_type data_type,
 	uint32_t delay_ms);
 
+// add by xiaomi start
+/**
+ * @io_master_info: I2C/SPI master information
+ * @addr: I2C address
+ * @data: I2C data
+ * @data_mask: I2C data mask
+ * @data_type: I2C data type
+ * @addr_type: I2C address type
+ * @delay_ms: delay in milli seconds
+ *
+ * This API abstracts poll functionality based on master type
+ */
+int32_t camera_io_dev_poll_not_equal(struct camera_io_master *io_master_info,
+	uint32_t addr, uint16_t data, uint32_t data_mask,
+	enum camera_sensor_i2c_type addr_type,
+	enum camera_sensor_i2c_type data_type,
+	uint32_t delay_ms);
+// add by xiaomi end
+
 #include "cam_sensor_i2c.h"
 #include "cam_sensor_spi.h"
 #include "cam_sensor_i3c.h"

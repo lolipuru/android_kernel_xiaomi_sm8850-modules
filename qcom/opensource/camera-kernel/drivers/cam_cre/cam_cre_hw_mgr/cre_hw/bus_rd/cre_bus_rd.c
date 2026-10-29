@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/delay.h>
 #include "cam_hw.h"
@@ -18,20 +18,12 @@
 
 static struct cre_bus_rd *bus_rd;
 
-static inline int cam_cre_add_rd_reg_set(struct cre_reg_buffer *b,
-					    uint32_t off, uint32_t val)
-{
-	if (b->num_rd_reg_set >= CAM_CRE_MAX_REG_SET) {
-		CAM_ERR(CAM_CRE, "rd_reg_set overflow: num=%u max=%u",
-			b->num_rd_reg_set, CAM_CRE_MAX_REG_SET);
-		return -ENOSPC;
-	}
-
-	b->rd_reg_set[b->num_rd_reg_set].offset = off;
-	b->rd_reg_set[b->num_rd_reg_set].value  = val;
-	b->num_rd_reg_set++;
-	return 0;
-}
+#define update_cre_reg_set(cre_reg_buf, off, val) \
+	do {                                           \
+		cre_reg_buf->rd_reg_set[cre_reg_buf->num_rd_reg_set].offset = (off); \
+		cre_reg_buf->rd_reg_set[cre_reg_buf->num_rd_reg_set].value = (val); \
+		cre_reg_buf->num_rd_reg_set++; \
+	} while (0)
 
 static int cam_cre_bus_rd_in_port_idx(uint32_t input_port_id)
 {
@@ -100,7 +92,6 @@ static int cam_cre_bus_rd_update(struct cam_cre_hw *cam_cre_hw_info,
 	int32_t ctx_id, struct cre_reg_buffer *cre_reg_buf, int batch_idx,
 	int io_idx, struct cam_cre_dev_prepare_req *prepare)
 {
-	int rc = 0;
 	int k, in_port_idx;
 	uint32_t req_idx, val;
 	uint32_t iova_base, iova_offset;
@@ -149,36 +140,25 @@ static int cam_cre_bus_rd_update(struct cam_cre_hw *cam_cre_hw_info,
 	in_port_idx =
 	cam_cre_bus_rd_in_port_idx(io_buf->resource_type);
 
-	if (in_port_idx < 0 || in_port_idx >= MAX_CRE_RD_CLIENTS) {
-		CAM_ERR(CAM_CRE, "Invalid in_port_idx for resource %d", io_buf->resource_type);
-		return -EINVAL;
-	}
-
 	CAM_DBG(CAM_CRE, "in_port_idx %d", in_port_idx);
 	for (k = 0; k < io_buf->num_planes; k++) {
 		rd_reg_client = &rd_reg->rd_clients[in_port_idx];
 		rd_client_reg_val = &rd_reg_val->rd_clients[in_port_idx];
 
 		/* security cfg */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 				rd_reg->offset + rd_reg->security_cfg,
 				ctx_data->cre_acquire.secure_mode & 0x1);
-		if (rc)
-			goto end;
 
 		/* enable client */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->core_cfg,
 			1);
-		if (rc)
-			goto end;
 
 		/* ccif meta data */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			(rd_reg->offset + rd_reg_client->ccif_meta_data),
 			0);
-		if (rc)
-			goto end;
 		/*
 		 * As CRE have 36 Bit addressing support Image Address
 		 * register will have 28 bit MSB of 36 bit iova.
@@ -186,40 +166,30 @@ static int cam_cre_bus_rd_update(struct cam_cre_hw *cam_cre_hw_info,
 		 */
 		iova_base = CAM_36BIT_INTF_GET_IOVA_BASE(
 				io_buf->p_info[k].iova_addr);
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->img_addr,
 			iova_base);
-		if (rc)
-			goto end;
 		iova_offset = CAM_36BIT_INTF_GET_IOVA_OFFSET(
 				io_buf->p_info[k].iova_addr);
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->addr_cfg,
 			iova_offset);
-		if (rc)
-			goto end;
 
 		cam_cre_update_read_reg_val(io_buf->p_info[k],
 			rd_client_reg_val);
 
 		/* Buffer size */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->rd_width,
 			rd_client_reg_val->img_width);
-		if (rc)
-			goto end;
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->rd_height,
 			rd_client_reg_val->img_height);
-		if (rc)
-			goto end;
 
 		/* stride */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->rd_stride,
 			rd_client_reg_val->stride);
-		if (rc)
-			goto end;
 
 		val = 0;
 		val |= (rd_client_reg_val->format &
@@ -229,24 +199,18 @@ static int cam_cre_bus_rd_update(struct cam_cre_hw *cam_cre_hw_info,
 			rd_client_reg_val->alignment_mask) <<
 			rd_client_reg_val->alignment_shift;
 		/* unpacker cfg : format and alignment */
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->unpacker_cfg,
 			val);
-		if (rc)
-			goto end;
 
 		/* Enable Debug cfg */
 		val = 0xFFFF;
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg_client->debug_status_cfg,
 			val);
-		if (rc)
-			goto end;
 	}
 
-
-end:
-	return rc;
+	return 0;
 }
 
 static int cam_cre_bus_rd_prepare(struct cam_cre_hw *cam_cre_hw_info,
@@ -261,7 +225,7 @@ static int cam_cre_bus_rd_prepare(struct cam_cre_hw *cam_cre_hw_info,
 	struct cre_io_buf *io_buf;
 	struct cam_cre_bus_rd_reg *rd_reg;
 	struct cam_cre_bus_rd_reg_val *rd_reg_val;
-	struct cre_reg_buffer *cre_reg_buf = NULL;
+	struct cre_reg_buffer *cre_reg_buf;
 
 	int val;
 
@@ -301,16 +265,9 @@ static int cam_cre_bus_rd_prepare(struct cam_cre_hw *cam_cre_hw_info,
 		val = 0;
 		val |= rd_reg_val->go_cmd;
 		val |= rd_reg_val->static_prg & rd_reg_val->static_prg_mask;
-		rc = cam_cre_add_rd_reg_set(cre_reg_buf,
+		update_cre_reg_set(cre_reg_buf,
 			rd_reg->offset + rd_reg->input_if_cmd,
 			val);
-		if (rc)
-			goto end;
-	}
-
-	if (!cre_reg_buf) {
-		CAM_DBG(CAM_CRE, "No batches to process");
-		goto end;
 	}
 
 	for (i = 0; i < cre_reg_buf->num_rd_reg_set; i++) {
@@ -319,7 +276,7 @@ static int cam_cre_bus_rd_prepare(struct cam_cre_hw *cam_cre_hw_info,
 				cre_reg_buf->rd_reg_set[i].offset);
 	}
 end:
-	return rc;
+	return 0;
 }
 
 static int cam_cre_bus_rd_acquire(struct cam_cre_hw *cam_cre_hw_info,
@@ -393,11 +350,6 @@ static int cam_cre_bus_rd_reg_set_update(struct cam_cre_hw *cam_cre_hw_info,
 	struct cre_reg_set *rd_reg_set;
 	struct cam_cre_dev_reg_set_update *reg_set_upd_cmd =
 		(struct cam_cre_dev_reg_set_update *)data;
-
-	if (!data) {
-		CAM_ERR(CAM_CRE, "Invalid data parameter");
-		return -EINVAL;
-	}
 
 	num_reg_set = reg_set_upd_cmd->cre_reg_buf.num_rd_reg_set;
 	rd_reg_set = reg_set_upd_cmd->cre_reg_buf.rd_reg_set;

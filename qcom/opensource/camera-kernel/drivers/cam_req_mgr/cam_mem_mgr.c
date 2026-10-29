@@ -254,8 +254,8 @@ inline void cam_mem_trace_init(void)
 
 static void cam_mem_trace_reset(void)
 {
-	struct cam_mem_trace_header *trace_header = NULL, *trace_header_tmp = NULL;
-	struct cam_mem_trace_record_page *page_header = NULL, *page_header_tmp = NULL;
+	struct cam_mem_trace_header *trace_header, *trace_header_tmp;
+	struct cam_mem_trace_record_page *page_header, *page_header_tmp;
 
 	list_for_each_entry_safe(page_header, page_header_tmp,
 		&g_trace.record_page_list, list) {
@@ -280,7 +280,7 @@ void *cam_mem_trace_alloc(size_t size, gfp_t gfp_flags,
 	bool force_kalloc, const char *owner, int line)
 {
 	size_t alloc_sz;
-	unsigned long flags = 0;
+	unsigned long flags;
 	void *header_kva, *mem_kva;
 	struct cam_mem_trace_header *trace_header;
 	struct cam_mem_trace_footer *trace_footer;
@@ -341,7 +341,7 @@ static inline char *cam_mem_trace_get_gfp_type(gfp_t flags)
 
 static int cam_mem_trace_new_record_page(void)
 {
-	unsigned long flags = 0;
+	unsigned long flags;
 	struct cam_mem_trace_record_page *old_page, *new_page;
 
 	/*
@@ -380,8 +380,8 @@ void cam_mem_trace_record_mass_mem(
 	bool need_new_page = false;
 	size_t remain_sz, line_len;
 	uint64_t kept_time_ms;
-	unsigned long flags = 0;
-	struct cam_mem_trace_record_page *page_header = NULL;
+	unsigned long flags;
+	struct cam_mem_trace_record_page *page_header;
 	char line_buf[256];
 	char kept_time_str[8];
 
@@ -394,8 +394,10 @@ void cam_mem_trace_record_mass_mem(
 		scnprintf(kept_time_str, 8, "%lldms", kept_time_ms);
 
 again:
-	if (list_empty(&g_trace.record_page_list) || need_new_page)
+	if (list_empty(&g_trace.record_page_list) || need_new_page) {
 		cam_mem_trace_new_record_page();
+		need_new_page = false;
+	}
 
 	spin_lock_irqsave(&g_trace.lock, flags);
 
@@ -433,7 +435,7 @@ again:
 void cam_mem_trace_free(const void *vaddr_ptr, bool force_kfree)
 {
 	int header_magic, footer_magic;
-	unsigned long flags = 0;
+	unsigned long flags;
 	void *header_kva, *footer_kva;
 	struct cam_mem_trace_header *trace_header;
 
@@ -509,7 +511,7 @@ EXPORT_SYMBOL(memdup_user_trace);
 static void cam_mem_trace_overview(void)
 {
 	int i;
-	unsigned long flags = 0;
+	unsigned long flags;
 	size_t total_dma_mem = 0;
 
 	for (i = 1; i < CAM_MEM_BUFQ_MAX; i++) {
@@ -531,8 +533,8 @@ static void cam_mem_trace_query(uint64_t threshold)
 	ktime_t now;
 	uint64_t kept_time_ms;
 	size_t len = 0, remain_len, line_len;
-	unsigned long flags = 0;
-	struct cam_mem_trace_header *trace_header = NULL;
+	unsigned long flags;
+	struct cam_mem_trace_header *trace_header;
 	char kept_time_str[8];
 	char line_buf[256];
 	char log_buf[512] = {'\0'};
@@ -585,9 +587,9 @@ static void cam_mem_trace_query_mass_mem(void)
 	ktime_t now;
 	char *page, *token = NULL;
 	uint64_t kept_time_sec;
-	unsigned long flags = 0;
-	struct cam_mem_trace_header *trace_header = NULL;
-	struct cam_mem_trace_record_page *page_header = NULL;
+	unsigned long flags;
+	struct cam_mem_trace_header *trace_header;
+	struct cam_mem_trace_record_page *page_header;
 	char *buf, *buf_ptr;
 
 	now = ktime_get_boottime();
@@ -941,7 +943,7 @@ static int32_t cam_mem_get_slot(void)
 	idx = find_first_zero_bit(tbl.bitmap, tbl.bits);
 	if (idx >= CAM_MEM_BUFQ_MAX || idx <= 0) {
 		mutex_unlock(&tbl.m_lock);
-		return -ENOENT;
+		return -ENOMEM;
 	}
 	set_bit(idx, tbl.bitmap);
 	mutex_unlock(&tbl.m_lock);
@@ -2231,7 +2233,7 @@ int cam_mem_mgr_alloc_and_map(struct cam_mem_mgr_alloc_cmd_v2 *cmd)
 	idx = cam_mem_get_slot();
 	if (idx < 0) {
 		CAM_ERR(CAM_MEM, "Failed in getting mem slot, idx=%d", idx);
-		rc = -ENOENT;
+		rc = -ENOMEM;
 		cam_mem_mgr_print_tbl();
 		goto slot_fail;
 	}
@@ -2459,14 +2461,14 @@ int cam_mem_mgr_map(struct cam_mem_mgr_map_cmd_v2 *cmd)
 	if (idx < 0) {
 		CAM_ERR(CAM_MEM, "Failed in getting mem slot, idx=%d, fd=%d",
 			idx, cmd->fd);
-		rc = -ENOENT;
+		rc = -ENOMEM;
 		cam_mem_mgr_print_tbl();
 		goto slot_fail;
 	}
-
-	if (cam_dma_buf_set_name(dmabuf, cmd->buf_name))
+	/* xiaomi add for dmabuff rename begin */
+	if ((strlen(cmd->buf_name) > 0) && (cam_dma_buf_set_name(dmabuf, cmd->buf_name)))
 		CAM_DBG(CAM_MEM, "Dma buffer (%s) busy", cmd->buf_name);
-
+	/* xiaomi add for dmabuff rename end */
 	if ((cmd->flags & CAM_MEM_FLAG_HW_READ_WRITE) ||
 		(cmd->flags & CAM_MEM_FLAG_PROTECTED_MODE)) {
 		rc = cam_mem_util_map_hw_va(cmd->flags,
@@ -3188,7 +3190,7 @@ int cam_mem_mgr_request_mem(struct cam_mem_mgr_request_desc *inp,
 	idx = cam_mem_get_slot();
 	if (idx < 0) {
 		CAM_ERR(CAM_MEM, "Failed in getting mem slot, idx=%d", idx);
-		rc = -ENOENT;
+		rc = -ENOMEM;
 		cam_mem_mgr_print_tbl();
 		goto slot_fail;
 	}
@@ -3359,7 +3361,7 @@ int cam_mem_mgr_reserve_memory_region(struct cam_mem_mgr_request_desc *inp,
 	idx = cam_mem_get_slot();
 	if (idx < 0) {
 		CAM_ERR(CAM_MEM, "Failed in getting mem slot, idx=%d", idx);
-		rc = -ENOENT;
+		rc = -ENOMEM;
 		cam_mem_mgr_print_tbl();
 		goto slot_fail;
 	}

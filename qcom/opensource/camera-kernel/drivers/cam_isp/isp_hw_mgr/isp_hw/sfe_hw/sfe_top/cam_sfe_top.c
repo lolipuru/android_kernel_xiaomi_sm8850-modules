@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/slab.h>
 #include "cam_io_util.h"
 #include "cam_cdm_util.h"
 #include "cam_sfe_hw_intf.h"
+#include "cam_tasklet_util.h"
 #include "cam_sfe_top.h"
 #include "cam_debug_util.h"
 #include "cam_sfe_soc.h"
 #include "cam_sfe_core.h"
 #include "cam_vmrm_interface.h"
 #include "cam_mem_mgr_api.h"
-#include "cam_worker_wrapper_api.h"
 
 struct cam_sfe_core_cfg {
 	uint32_t   mode_sel;
@@ -1125,7 +1125,7 @@ static int cam_sfe_top_apply_bw_start_stop(struct cam_sfe_top_priv *top_priv)
 
 	rc = cam_sfe_top_calc_axi_bw_vote(top_priv, true,
 		&to_be_applied_axi_vote, &total_bw_new_vote, 0);
-	if (rc || !to_be_applied_axi_vote) {
+	if (rc) {
 		CAM_ERR(CAM_SFE, "SFE:%d Failed in calculating bw vote rc=%d",
 			top_priv->common_data.hw_intf->hw_idx, rc);
 		goto end;
@@ -1550,7 +1550,7 @@ int cam_sfe_top_reserve(void *device_priv,
 			}
 
 			top_priv->in_rsrc[i].cdm_ops = acquire_args->cdm_ops;
-			top_priv->in_rsrc[i].worker_ctx = args->worker_ctx;
+			top_priv->in_rsrc[i].tasklet_info = args->tasklet;
 			top_priv->in_rsrc[i].res_state =
 				CAM_ISP_RESOURCE_STATE_RESERVED;
 			acquire_args->rsrc_node =
@@ -1596,7 +1596,7 @@ int cam_sfe_top_release(void *device_priv,
 
 	in_res->res_state = CAM_ISP_RESOURCE_STATE_AVAILABLE;
 	in_res->cdm_ops = NULL;
-	in_res->worker_ctx = NULL;
+	in_res->tasklet_info = NULL;
 	if (top_priv->reserve_cnt)
 		top_priv->reserve_cnt--;
 
@@ -1641,7 +1641,7 @@ static int cam_sfe_top_put_evt_payload(
 	struct cam_sfe_top_priv                *top_priv,
 	struct cam_sfe_top_irq_evt_payload    **evt_payload)
 {
-	unsigned long flags = 0;
+	unsigned long flags;
 
 	if (!top_priv) {
 		CAM_ERR(CAM_SFE, "Invalid param core_info NULL");
@@ -2080,7 +2080,8 @@ int cam_sfe_top_start(
 			top_priv,
 			cam_sfe_top_handle_err_irq_top_half,
 			cam_sfe_top_handle_err_irq_bottom_half,
-			sfe_res->worker_ctx,
+			sfe_res->tasklet_info,
+			&tasklet_bh_api,
 			CAM_IRQ_EVT_GROUP_0);
 
 		if (top_priv->error_irq_handle < 1) {
@@ -2106,7 +2107,8 @@ int cam_sfe_top_start(
 				sfe_res,
 				cam_sfe_top_handle_irq_top_half,
 				cam_sfe_top_handle_irq_bottom_half,
-				sfe_res->worker_ctx,
+				sfe_res->tasklet_info,
+				&tasklet_bh_api,
 				CAM_IRQ_EVT_GROUP_0);
 
 			if (path_data->sof_eof_handle < 1) {
@@ -2422,7 +2424,7 @@ int cam_sfe_top_deinit(
 	struct cam_sfe_top **sfe_top_ptr)
 {
 	int i, rc = 0;
-	unsigned long flags = 0;
+	unsigned long flags;
 	struct cam_sfe_top      *sfe_top;
 	struct cam_sfe_top_priv *top_priv;
 

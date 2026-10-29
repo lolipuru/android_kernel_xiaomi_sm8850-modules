@@ -14,72 +14,35 @@
 #include "cam_cpastop_hw.h"
 #include "cam_io_util.h"
 #include "cam_cpas_soc.h"
-#if IS_ENABLED(CONFIG_ARCH_TALOS)
-#include "cpastop_v150_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_NAPALI)
 #include "cpastop100.h"
-#include "cpastop_v170_110.h"
+#include "cpastop_v150_100.h"
 #include "cpastop_v170_200.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_NILE)
+#include "cpastop_v170_110.h"
 #include "cpastop_v175_100.h"
 #include "cpastop_v175_101.h"
 #include "cpastop_v175_120.h"
 #include "cpastop_v175_130.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_LAHAINA)
-#include "cpastop_v580_100.h"
-#include "cpastop_v580_custom.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_KONA)
 #include "cpastop_v480_100.h"
 #include "cpastop_v480_custom.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SHIMA)
-#include "cpastop_v520_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_BENGAL)
+#include "cpastop_v580_100.h"
+#include "cpastop_v580_custom.h"
 #include "cpastop_v540_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_WAIPIO)
-#include "cpastop_v680_110.h"
-#include "cpastop_v680_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_CANOE)
-#include "cpastop_v1080_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_HOLI)
+#include "cpastop_v520_100.h"
 #include "cpastop_v545_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SHIMA)
 #include "cpastop_v570_100.h"
 #include "cpastop_v570_200.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_CHORA)
-#include "cpastop_v662_100.h"
-#include "cpastop_v640_210.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_YUPIK)
+#include "cpastop_v680_100.h"
+#include "cpastop_v680_110.h"
 #include "cpastop_v165_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_KALAMA)
 #include "cpastop_v780_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_PARROT)
 #include "cpastop_v640_200.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_PINEAPPLE)
 #include "cpastop_v880_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SUN)
 #include "cpastop_v975_100.h"
 #include "cpastop_v970_110.h"
 #include "cpastop_v980_100.h"
-#endif
-#if IS_ENABLED(CONFIG_ARCH_ALOR)
+#include "cpastop_v1080_100.h"
 #include "cpastop_v1077_100.h"
-#endif
+#include "cam_req_mgr_workq.h"
 #include "cam_common_util.h"
 #include "cam_vmrm_interface.h"
 #include "cam_mem_mgr_api.h"
@@ -119,7 +82,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_170 */
 	{
@@ -129,7 +91,6 @@ static const uint32_t cam_cpas_hw_version_map
 		CAM_CPAS_TITAN_170_V120,
 		0,
 		CAM_CPAS_TITAN_170_V200,
-		0,
 	},
 	/* for camera_175 */
 	{
@@ -139,12 +100,10 @@ static const uint32_t cam_cpas_hw_version_map
 		CAM_CPAS_TITAN_175_V120,
 		CAM_CPAS_TITAN_175_V130,
 		0,
-		0,
 	},
 	/* for camera_480 */
 	{
 		CAM_CPAS_TITAN_480_V100,
-		0,
 		0,
 		0,
 		0,
@@ -159,7 +118,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_520 */
 	{
@@ -169,12 +127,11 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
+
 	},
 	/* for camera_540 */
 	{
 		CAM_CPAS_TITAN_540_V100,
-		0,
 		0,
 		0,
 		0,
@@ -189,7 +146,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_570 */
 	{
@@ -199,7 +155,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		CAM_CPAS_TITAN_570_V200,
-		0,
 	},
 	/* for camera_680 */
 	{
@@ -209,12 +164,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_165 */
 	{
 		CAM_CPAS_TITAN_165_V100,
-		0,
 		0,
 		0,
 		0,
@@ -229,7 +182,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_640 */
 	{
@@ -239,12 +191,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		CAM_CPAS_TITAN_640_V200,
-		CAM_CPAS_TITAN_640_V210,
 	},
 	/* for camera_880 */
 	{
 		CAM_CPAS_TITAN_880_V100,
-		0,
 		0,
 		0,
 		0,
@@ -259,12 +209,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_1080 */
 	{
 		CAM_CPAS_TITAN_1080_V100,
-		0,
 		0,
 		0,
 		0,
@@ -279,12 +227,10 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		0,
-		0,
 	},
 	/* for camera_1077 */
 	{
 		CAM_CPAS_TITAN_1077_V100,
-		0,
 		0,
 		0,
 		0,
@@ -296,15 +242,6 @@ static const uint32_t cam_cpas_hw_version_map
 		0,
 		0,
 		CAM_CPAS_TITAN_970_V110,
-		0,
-		0,
-		0,
-	},
-	{
-	/* for camera_662 */
-		CAM_CPAS_TITAN_662_V100,
-		0,
-		0,
 		0,
 		0,
 		0,
@@ -388,9 +325,6 @@ static int cam_cpas_translate_camera_cpas_version_id(
 	case CAM_CPAS_CAMERA_VERSION_1077:
 		*cam_version_id = CAM_CPAS_CAMERA_VERSION_ID_1077;
 		break;
-	case CAM_CPAS_CAMERA_VERSION_662:
-		*cam_version_id = CAM_CPAS_CAMERA_VERSION_ID_662;
-		break;
 	default:
 		CAM_ERR(CAM_CPAS, "Invalid cam version %u",
 			cam_version);
@@ -420,10 +354,6 @@ static int cam_cpas_translate_camera_cpas_version_id(
 
 	case CAM_CPAS_VERSION_200:
 		*cpas_version_id = CAM_CPAS_VERSION_ID_200;
-		break;
-
-	case CAM_CPAS_VERSION_210:
-		*cpas_version_id = CAM_CPAS_VERSION_ID_210;
 		break;
 
 	default:
@@ -976,7 +906,7 @@ static void cam_cpastop_notify_clients(struct cam_cpas *cpas_core,
 	}
 }
 
-static int cam_cpastop_work(void *priv, void *data)
+static void cam_cpastop_work(struct work_struct *work)
 {
 	struct cam_cpas_work_payload *payload;
 	struct cam_hw_info *cpas_hw;
@@ -988,17 +918,17 @@ static int cam_cpastop_work(void *priv, void *data)
 	enum cam_camnoc_hw_type camnoc_type;
 	struct cam_camnoc_info *curr_camnoc_info;
 
-	payload = (struct cam_cpas_work_payload *)priv;
+	payload = container_of(work, struct cam_cpas_work_payload, work);
 	if (!payload) {
 		CAM_ERR(CAM_CPAS, "NULL payload");
-		return -EINVAL;
+		return;
 	}
 
 	camnoc_type = payload->camnoc_type;
 	cam_common_util_thread_switch_delay_detect(
-		"cam_cpas_worker", "schedule", cam_cpastop_work,
-		payload->worker_scheduled_ts,
-		CAM_WORKER_SCHEDULE_TIME_THRESHOLD);
+		"cam_cpas_workq", "schedule", cam_cpastop_work,
+		payload->workq_scheduled_ts,
+		CAM_WORKQ_SCHEDULE_TIME_THRESHOLD);
 
 	cpas_hw = payload->hw;
 	cpas_core = (struct cam_cpas *) cpas_hw->core_info;
@@ -1007,7 +937,7 @@ static int cam_cpastop_work(void *priv, void *data)
 
 	if (!atomic_inc_not_zero(&cpas_core->soc_access_count)) {
 		CAM_ERR(CAM_CPAS, "CPAS off");
-		return -EIO;
+		return;
 	}
 
 	for (i = 0; i < curr_camnoc_info->irq_err_size; i++) {
@@ -1071,8 +1001,6 @@ static int cam_cpastop_work(void *priv, void *data)
 			g_camnoc_names[camnoc_type], payload->irq_status);
 
 	CAM_MEM_FREE(payload);
-
-	return 0;
 }
 
 static irqreturn_t cam_cpastop_handle_irq(int irq_num, void *data)
@@ -1081,12 +1009,11 @@ static irqreturn_t cam_cpastop_handle_irq(int irq_num, void *data)
 	struct cam_hw_info *cpas_hw = soc_irq_data->cpas_hw;
 	struct cam_cpas *cpas_core = (struct cam_cpas *) cpas_hw->core_info;
 	struct cam_hw_soc_info *soc_info = &cpas_hw->soc_info;
-	int regbase_idx, slave_err_irq_idx, rc;
+	int regbase_idx, slave_err_irq_idx;
 	struct cam_cpas_work_payload *payload;
 	struct cam_cpas_irq_data irq_data;
 	enum cam_camnoc_hw_type camnoc_type;
 	struct cam_camnoc_info *curr_camnoc_info;
-	struct cam_worker_wrapper_taskdata_args task = {0};
 
 	if (!atomic_inc_not_zero(&cpas_core->soc_access_count)) {
 		CAM_ERR(CAM_CPAS, "CPAS off");
@@ -1160,22 +1087,11 @@ static irqreturn_t cam_cpastop_handle_irq(int irq_num, void *data)
 		}
 	}
 
-	rc = cam_worker_wrapper_get(cpas_core->worker_ctx, &task);
-	if (rc) {
-		CAM_ERR(CAM_CPAS, "Failed at getting a task from worker");
-		CAM_MEM_FREE(payload);
-		goto done;
-	}
-
 	payload->hw = cpas_hw;
-	payload->worker_scheduled_ts = ktime_get_boottime();
-	rc = cam_worker_wrapper_enqueue(cpas_core->worker_ctx, &task,
-		payload, NULL, cam_cpastop_work);
-	if (rc) {
-		CAM_ERR(CAM_CPAS, "Failed at enqueuing a task to worker");
-		CAM_MEM_FREE(payload);
-		goto done;
-	}
+	INIT_WORK((struct work_struct *)&payload->work, cam_cpastop_work);
+
+	payload->workq_scheduled_ts = ktime_get_boottime();
+	queue_work(cpas_core->work_queue, &payload->work);
 
 done:
 	atomic_dec(&cpas_core->soc_access_count);
@@ -1780,12 +1696,6 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 		hw_caps->cpas_version.incr);
 
 	switch (soc_info->hw_version) {
-#if IS_ENABLED(CONFIG_ARCH_TALOS)
-	case CAM_CPAS_TITAN_150_V100:
-		cpas_core->hw_info = &cam150_cpas100_hw_info;
-		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_NAPALI)
 	case CAM_CPAS_TITAN_170_V100:
 		cpas_core->hw_info = &cam170_cpas100_hw_info;
 		break;
@@ -1795,8 +1705,6 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 	case CAM_CPAS_TITAN_170_V200:
 		cpas_core->hw_info = &cam170_cpas200_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_NILE)
 	case CAM_CPAS_TITAN_175_V100:
 		cpas_core->hw_info = &cam175_cpas100_hw_info;
 		break;
@@ -1809,84 +1717,48 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 	case CAM_CPAS_TITAN_175_V130:
 		cpas_core->hw_info = &cam175_cpas130_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_LAHAINA)
-	case CAM_CPAS_TITAN_580_V100:
-		cpas_core->hw_info = &cam580_cpas100_hw_info;
+	case CAM_CPAS_TITAN_150_V100:
+		cpas_core->hw_info = &cam150_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_KONA)
 	case CAM_CPAS_TITAN_480_V100:
 		cpas_core->hw_info = &cam480_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SHIMA)
-	case CAM_CPAS_TITAN_520_V100:
-		cpas_core->hw_info = &cam520_cpas100_hw_info;
+	case CAM_CPAS_TITAN_580_V100:
+		cpas_core->hw_info = &cam580_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_BENGAL)
 	case CAM_CPAS_TITAN_540_V100:
 		cpas_core->hw_info = &cam540_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_WAIPIO)
-	case CAM_CPAS_TITAN_680_V100:
-		cpas_core->hw_info = &cam680_cpas100_hw_info;
+	case CAM_CPAS_TITAN_520_V100:
+		cpas_core->hw_info = &cam520_cpas100_hw_info;
 		break;
-	case CAM_CPAS_TITAN_680_V110:
-		cpas_core->hw_info = &cam680_cpas110_hw_info;
-		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_CANOE)
-	case CAM_CPAS_TITAN_1080_V100:
-		cpas_core->hw_info = &cam1080_cpas100_hw_info;
-		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_HOLI)
 	case CAM_CPAS_TITAN_545_V100:
 		cpas_core->hw_info = &cam545_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SHIMA)
 	case CAM_CPAS_TITAN_570_V100:
 		cpas_core->hw_info = &cam570_cpas100_hw_info;
 		break;
 	case CAM_CPAS_TITAN_570_V200:
 		cpas_core->hw_info = &cam570_cpas200_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_CHORA)
-	case CAM_CPAS_TITAN_662_V100:
-		cpas_core->hw_info = &cam662_cpas100_hw_info;
+	case CAM_CPAS_TITAN_680_V100:
+		cpas_core->hw_info = &cam680_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_YUPIK)
+	case CAM_CPAS_TITAN_680_V110:
+		cpas_core->hw_info = &cam680_cpas110_hw_info;
+		break;
 	case CAM_CPAS_TITAN_165_V100:
 		cpas_core->hw_info = &cam165_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_KALAMA)
 	case CAM_CPAS_TITAN_780_V100:
 		cpas_core->hw_info = &cam780_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_PARROT)
 	case CAM_CPAS_TITAN_640_V200:
 		cpas_core->hw_info = &cam640_cpas200_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_CHORA)
-	case CAM_CPAS_TITAN_640_V210:
-		cpas_core->hw_info = &cam640_cpas210_hw_info;
-		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_PINEAPPLE)
 	case CAM_CPAS_TITAN_880_V100:
 		cpas_core->hw_info = &cam880_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_SUN)
 	case CAM_CPAS_TITAN_975_V100:
 		cpas_core->hw_info = &cam975_cpas100_hw_info;
 		break;
@@ -1896,12 +1768,12 @@ static int cam_cpastop_init_hw_version(struct cam_hw_info *cpas_hw,
 	case CAM_CPAS_TITAN_980_V100:
 		cpas_core->hw_info = &cam980_cpas100_hw_info;
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_ALOR)
+	case CAM_CPAS_TITAN_1080_V100:
+		cpas_core->hw_info = &cam1080_cpas100_hw_info;
+		break;
 	case CAM_CPAS_TITAN_1077_V100:
 		cpas_core->hw_info = &cam1077_cpas100_hw_info;
 		break;
-#endif
 	default:
 		CAM_ERR(CAM_CPAS, "Camera Version not supported %d.%d.%d",
 			hw_caps->camera_version.major,
@@ -1930,9 +1802,7 @@ static int cam_cpastop_setup_qos_settings(struct cam_hw_info *cpas_hw,
 {
 	int rc = 0;
 	struct cam_hw_soc_info *soc_info = &cpas_hw->soc_info;
-#if IS_ENABLED(CONFIG_ARCH_KONA) || IS_ENABLED(CONFIG_ARCH_LAHAINA)
 	struct cam_cpas *cpas_core = cpas_hw->core_info;
-#endif
 
 	CAM_DBG(CAM_CPAS,
 		"QoS selection : hw_version=0x%x selection_mask 0x%x",
@@ -1940,7 +1810,6 @@ static int cam_cpastop_setup_qos_settings(struct cam_hw_info *cpas_hw,
 		selection_mask);
 
 	switch (soc_info->hw_version) {
-#if IS_ENABLED(CONFIG_ARCH_KONA)
 	case CAM_CPAS_TITAN_480_V100:
 		if (selection_mask & CAM_CPAS_QOS_CUSTOM_SETTINGS_MASK)
 			cpas_core->hw_info = &cam480_custom_hw_info;
@@ -1950,8 +1819,6 @@ static int cam_cpastop_setup_qos_settings(struct cam_hw_info *cpas_hw,
 			CAM_ERR(CAM_CPAS, "Invalid selection mask 0x%x",
 				selection_mask);
 		break;
-#endif
-#if IS_ENABLED(CONFIG_ARCH_LAHAINA)
 	case CAM_CPAS_TITAN_580_V100:
 		if (selection_mask & CAM_CPAS_QOS_CUSTOM_SETTINGS_MASK)
 			cpas_core->hw_info = &cam580_custom_hw_info;
@@ -1962,7 +1829,6 @@ static int cam_cpastop_setup_qos_settings(struct cam_hw_info *cpas_hw,
 				"Invalid selection mask 0x%x for hw 0x%x",
 				selection_mask, soc_info->hw_version);
 		break;
-#endif
 	default:
 		CAM_WARN(CAM_CPAS, "QoS selection not supported for 0x%x",
 			soc_info->hw_version);

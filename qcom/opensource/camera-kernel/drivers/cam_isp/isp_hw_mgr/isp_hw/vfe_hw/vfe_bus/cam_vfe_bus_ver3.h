@@ -17,10 +17,6 @@
 #define CAM_VFE_BUS_VER3_CONS_ERR_MAX        32
 #define CAM_VFE_BUS_VER3_MAX_CLIENTS         32
 
-#define CAM_VFE_BUS_VER3_IRQ_REG0                0
-#define CAM_VFE_BUS_VER3_IRQ_REG1                1
-#define CAM_VFE_BUS_VER3_IRQ_MAX                 2
-
 /*
  * Max number of MIDs that a client can support.
  * Max value is determined considering the ports supporting
@@ -116,9 +112,8 @@ enum cam_vfe_bus_ver3_vfe_out_type {
 	CAM_VFE_BUS_VER3_VFE_OUT_STATS_AF_BHIST,
 	CAM_VFE_BUS_VER3_VFE_OUT_STATS_TMC_BHIST,
 	CAM_VFE_BUS_VER3_VFE_OUT_STATS_AEC_BHIST,
-	CAM_VFE_BUS_VER3_VFE_OUT_FD2,
+	CAM_VFE_BUS_VER3_VFE_OUT_FD_SECURE,
 	CAM_VFE_BUS_VER3_VFE_OUT_PDAF_PREPROCESSED2,
-	CAM_VFE_BUS_VER3_VFE_OUT_IDEAL_RAW,
 	CAM_VFE_BUS_VER3_VFE_OUT_MAX,
 };
 
@@ -200,8 +195,6 @@ struct cam_vfe_bus_ver3_reg_offset_common {
 	uint32_t frmheader_en_shift;
 	uint32_t virtual_frm_en_shift;
 	uint32_t top_irq_mask_0;
-	uint32_t no_fault_irq_set_reg_idx;
-	uint32_t no_fault_irq_set_mask;
 	struct cam_irq_controller_reg_info irq_reg_info;
 	uint32_t num_perf_counters;
 	uint32_t perf_cnt_status;
@@ -276,11 +269,9 @@ struct cam_vfe_bus_ver3_reg_offset_bus_client {
 	uint64_t  pid_mask;
 	uint32_t  early_done_mask;
 	uint32_t  mid[CAM_VFE_BUS_VER3_NUM_MID_MAX];
-	uint32_t  source_group;
 	uint8_t  *name;
 	bool      mc_based;
 	bool      cntxt_cfg_except;
-	bool      skip_stride_align;
 };
 
 /*
@@ -305,6 +296,7 @@ struct cam_vfe_bus_ver3_vfe_out_hw_info {
 	bool                                mc_based;
 	bool                                cntxt_cfg_except;
 };
+
 
 /*
  * struct cam_vfe_bus_ver3_hw_info:
@@ -340,8 +332,6 @@ struct cam_vfe_bus_ver3_vfe_out_hw_info {
  * @client_reg_size:                 Reg size for clients
  * @ubwc_client_mask:                Mask for clients supporting UBWC.
  * @bus_wr_base:                     Base address for Bus Wr.
- * @query_reg:                       Register offsets for Query.
- * @query_info:                      Query Info.
  * @support_dyn_offset:              Flag for supporting dynamic offset
  */
 struct cam_vfe_bus_ver3_hw_info {
@@ -358,7 +348,6 @@ struct cam_vfe_bus_ver3_hw_info {
 	struct cam_vfe_constraint_error_info
 		constraint_error_list[CAM_VFE_BUS_VER3_CONS_ERR_MAX];
 	uint32_t num_bus_errors;
-	uint32_t bus_err_irq_mask[CAM_VFE_BUS_VER3_IRQ_MAX];
 	struct cam_vfe_bus_ver3_err_irq_desc (*bus_err_desc)[][32];
 	uint32_t num_comp_grp;
 	uint32_t comp_done_mask[CAM_VFE_BUS_VER3_COMP_GRP_MAX];
@@ -379,8 +368,6 @@ struct cam_vfe_bus_ver3_hw_info {
 	uint32_t client_reg_size;
 	uint64_t ubwc_clients_mask;
 	uint64_t bus_wr_base;
-	struct   cam_vfe_bus_ver3_query_dmi_reg_info *query_reg;
-	void     *query_info;
 	bool     support_dyn_offset;
 };
 
@@ -430,21 +417,6 @@ struct cam_vfe_bus_ver3_mini_dump_data {
 	uint8_t                               hw_idx;
 };
 
-/**
- * struct cam_vfe_bus_ver3_query_dmi_reg_info - VFE bus DMI Query data
- *
- * @dmi_cfg:           DMI CFG offset
- * @dmi_lut_cfg:       DMI LUT CFG offset
- * @dmi_data:          DMI Data offset
- * @query_sel_val:     Query type sel
- */
-struct cam_vfe_bus_ver3_query_dmi_reg_info {
-	uint32_t dmi_cfg;
-	uint32_t dmi_lut_cfg;
-	uint32_t dmi_data;
-	uint32_t query_sel_val;
-};
-
 /*
  * cam_vfe_bus_ver3_init()
  *
@@ -491,18 +463,4 @@ int cam_vfe_bus_ver3_deinit(struct cam_vfe_bus     **vfe_bus);
  * @Return:                  Void
  */
 void cam_vfe_bus_ver3_debug_handler(void *priv, void *data);
-
-/*
- * cam_vfe_bus_ver3_read_hw_query()
- *
- * @Brief:                   Read hw query for TFE bus
- *
- * @soc_info:                Soc info
- * @vfe_hw_info:             VFE hw info
- *
- * @Return:                  0: Success
- *                           Non-zero: Failure
- */
-int cam_vfe_bus_ver3_read_hw_query(struct cam_hw_soc_info *soc_info,
-	void *bus_hw_info);
 #endif /* _CAM_VFE_BUS_VER3_H_ */

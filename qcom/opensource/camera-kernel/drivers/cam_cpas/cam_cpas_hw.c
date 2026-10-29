@@ -20,7 +20,6 @@
 #include "cam_mem_mgr_api.h"
 #include "cam_req_mgr_interface.h"
 #include "cam_vmrm_interface.h"
-#include "cam_vfe_top_common.h"
 
 #define CAM_CPAS_APPLY_TYPE_START  1
 #define CAM_CPAS_APPLY_TYPE_STOP   2
@@ -1414,52 +1413,11 @@ static int cam_cpas_util_set_camnoc_axi_drv_clk_rate(struct cam_hw_soc_info *soc
 	return rc;
 }
 
-static int cam_cpas_get_max_of_tfe_and_camnoc(
-	struct cam_hw_soc_info *soc_info,
-	int64_t hlos_clk_rate, int64_t *max_hlos_clk_rate)
-{
-	int i = 0, rc = 0;
-	int camnoc_clk_lvl = -1;
-	int max_tfe_clk_lvl = -1;
-	int clk_lvl_to_be_applied = -1;
-	int clock_idx = soc_info->src_clk_idx;
-
-	for (i = 0; i < CAM_IFE_HW_CORE_NUM_MAX; i++) {
-		if (max_tfe_clk_lvl < g_cam_tfe_clk_lvl[i])
-			max_tfe_clk_lvl = g_cam_tfe_clk_lvl[i];
-	}
-
-	rc = cam_soc_util_get_clk_level(soc_info, hlos_clk_rate,
-		soc_info->src_clk_idx, &camnoc_clk_lvl);
-	if (rc) {
-		CAM_ERR(CAM_ISP, "Failed to get clock level for rate %llu", hlos_clk_rate);
-		return -EINVAL;
-	}
-
-	if (max_tfe_clk_lvl > camnoc_clk_lvl)
-		clk_lvl_to_be_applied = max_tfe_clk_lvl;
-	else
-		clk_lvl_to_be_applied = camnoc_clk_lvl;
-
-	if (camnoc_clk_lvl != clk_lvl_to_be_applied)
-		*max_hlos_clk_rate = soc_info->clk_rate[clk_lvl_to_be_applied][clock_idx];
-	else
-		*max_hlos_clk_rate = hlos_clk_rate;
-
-	CAM_DBG(CAM_CPAS,
-		"clk name %s Max ife_lvl= %d, clk_level= %d hlos_clk_rate = %llu applied_rate %llu",
-		soc_info->clk_name[clock_idx], max_tfe_clk_lvl, camnoc_clk_lvl, hlos_clk_rate,
-		*max_hlos_clk_rate);
-
-	return rc;
-}
-
 static int cam_cpas_util_set_max_camnoc_axi_clk_rate(struct cam_cpas *cpas_core,
 	struct cam_hw_soc_info *soc_info)
 {
 	int rc, highest_full_tree_clk_lvl = 0, highest_nrt_tree_lvl = 0;
 	int64_t applied_full_tree_rate = 0, applied_nrt_tree_rate = 0;
-	int64_t max_hlos_clk_rate = 0;
 	const struct camera_debug_settings *cam_debug = NULL;
 	struct cam_cpas_private_soc *soc_private =
 		(struct cam_cpas_private_soc *) soc_info->soc_private;
@@ -1513,17 +1471,8 @@ static int cam_cpas_util_set_max_camnoc_axi_clk_rate(struct cam_cpas *cpas_core,
 		}
 
 	} else {
-		rc = cam_cpas_get_max_of_tfe_and_camnoc(soc_info, applied_full_tree_rate,
-				&max_hlos_clk_rate);
-		if (rc) {
-			CAM_ERR(CAM_CPAS,
-				"Failed max camnoc rate as per clients, camnoc applied rate:[%lld] rc:%d",
-				applied_full_tree_rate, rc);
-			max_hlos_clk_rate = applied_full_tree_rate;
-		}
-
 		rc = cam_soc_util_set_src_clk_rate(soc_info, CAM_CLK_SW_CLIENT_IDX,
-				max_hlos_clk_rate, 0);
+				applied_full_tree_rate, 0);
 		if (rc) {
 			CAM_ERR(CAM_CPAS,
 				"Failed in setting camnoc axi clk applied rate:[%lld] rc:%d",
@@ -1532,9 +1481,7 @@ static int cam_cpas_util_set_max_camnoc_axi_clk_rate(struct cam_cpas *cpas_core,
 		}
 	}
 
-	cpas_core->applied_camnoc_axi_rate.sw_client = max_hlos_clk_rate;
-	CAM_DBG(CAM_PERF, "Setting camnoc axi HLOS clk rate[Clk] : [%lld]",
-		max_hlos_clk_rate);
+	cpas_core->applied_camnoc_axi_rate.sw_client = applied_full_tree_rate;
 	return rc;
 }
 
@@ -1558,6 +1505,13 @@ static int cam_cpas_util_set_camnoc_axi_hlos_clk_rate(struct cam_hw_soc_info *so
 		curr_node_camnoc_bw =
 			tree_node->bw_info[CAM_CPAS_PORT_HLOS_DRV].hlos_vote.camnoc *
 			tree_node->bus_width_factor;
+
+		// XIAOMI ADD to avoid overflow
+		if (curr_node_camnoc_bw > 32000000000) {
+			curr_node_camnoc_bw = 32000000000;
+			CAM_ERR(CAM_CPAS, "Invalid curr_node_camnoc_bw %llu", curr_node_camnoc_bw);
+		}
+		// XIAOMI ADD to avoid overflow END
 
 		if (req_full_tree_hlos_camnoc_bw < curr_node_camnoc_bw)
 			req_full_tree_hlos_camnoc_bw = curr_node_camnoc_bw;
@@ -3788,7 +3742,7 @@ static void cam_cpas_dump_monitor_array(
 	int i = 0, k = 0;
 	int64_t state_head = 0;
 	uint32_t index, num_entries, oldest_entry, camnoc_type, j;
-	uint64_t ms = 0, hrs = 0, min = 0, sec = 0;
+	uint64_t ms, hrs, min, sec;
 	struct cam_cpas_monitor *entry;
 	struct timespec64 curr_timestamp;
 	char log_buf[CAM_CPAS_LOG_BUF_LEN];
@@ -3972,8 +3926,7 @@ static void *cam_cpas_user_dump_state_monitor_array_info(
 	*addr++ = monitor->applied_camnoc_clk.hw_client[2].low,
 	*addr++ = monitor->applied_ahb_level;
 	*addr++ = num_valid_camnoc;
-	if (soc_private->enable_smart_qos)
-		*addr++ = soc_private->smart_qos_info->num_rt_wr_nius;
+	*addr++ = soc_private->smart_qos_info->num_rt_wr_nius;
 	*addr++ = num_vcds;
 	*addr++ = cpas_core->num_axi_ports;
 
@@ -4023,17 +3976,14 @@ static void *cam_cpas_user_dump_state_monitor_array_info(
 		}
 	}
 
-	if (soc_private->enable_smart_qos) {
-		for (i = 0; i < soc_private->smart_qos_info->num_rt_wr_nius; i++) {
-			niu_node = soc_private->smart_qos_info->rt_wr_niu_node[i];
-			dst = (uint8_t *)addr;
-			hdr = (struct cam_common_hw_dump_header *)dst;
-			scnprintf(hdr->tag,
-				CAM_COMMON_HW_DUMP_TAG_MAX_LEN, "%s:", niu_node->node_name);
-			addr = (uint64_t *)(dst + sizeof(struct cam_common_hw_dump_header));
-			*addr++ = monitor->rt_wr_niu_pri_lut_high[i];
-			*addr++ = monitor->rt_wr_niu_pri_lut_low[i];
-		}
+	for (i = 0; i < soc_private->smart_qos_info->num_rt_wr_nius; i++) {
+		niu_node = soc_private->smart_qos_info->rt_wr_niu_node[i];
+		dst = (uint8_t *)addr;
+		hdr = (struct cam_common_hw_dump_header *)dst;
+		scnprintf(hdr->tag, CAM_COMMON_HW_DUMP_TAG_MAX_LEN, "%s:", niu_node->node_name);
+		addr = (uint64_t *)(dst + sizeof(struct cam_common_hw_dump_header));
+		*addr++ = monitor->rt_wr_niu_pri_lut_high[i];
+		*addr++ = monitor->rt_wr_niu_pri_lut_low[i];
 	}
 
 	vcd_reg_debug_info = &monitor->vcd_reg_debug_info;
@@ -4063,8 +4013,7 @@ static int cam_cpas_dump_state_monitor_array_info(
 	struct cam_common_hw_dump_args  dump_args;
 	size_t                          buf_len;
 	size_t                          remain_len;
-	size_t                          min_len = 0;
-	uint32_t                        camnoc_type;
+	uint32_t                        min_len = 0, camnoc_type;
 	uintptr_t                       cpu_addr;
 	struct cam_cpas *cpas_core = (struct cam_cpas *) cpas_hw->core_info;
 	int64_t                         state_head = 0;
@@ -4127,11 +4076,9 @@ static int cam_cpas_dump_state_monitor_array_info(
 			}
 		}
 
-		if (soc_private->enable_smart_qos) {
-			for (j = 0; j < soc_private->smart_qos_info->num_rt_wr_nius; j++)
-				min_len += sizeof(struct cam_common_hw_dump_header) +
-					CAM_CPAS_DUMP_NUM_WORDS_RT_WR_NIUS * sizeof(uint64_t);
-		}
+		for (j = 0; j < soc_private->smart_qos_info->num_rt_wr_nius; j++)
+			min_len += sizeof(struct cam_common_hw_dump_header) +
+				CAM_CPAS_DUMP_NUM_WORDS_RT_WR_NIUS * sizeof(uint64_t);
 
 		for (j = 0; j < CAM_CPAS_MAX_CESTA_VCD_NUM; j++)
 			min_len += CAM_CPAS_DUMP_NUM_WORDS_VCD_CURR_LVL * sizeof(uint64_t);
@@ -4140,7 +4087,7 @@ static int cam_cpas_dump_state_monitor_array_info(
 	}
 
 	if (remain_len < min_len) {
-		CAM_WARN(CAM_CPAS, "Dump buffer exhaust remain %zu min %zu",
+		CAM_WARN(CAM_CPAS, "Dump buffer exhaust remain %zu min %u",
 			remain_len, min_len);
 		cam_mem_put_cpu_buf(dump_info->buf_handle);
 		return -ENOSPC;
@@ -5289,7 +5236,6 @@ int cam_cpas_hw_probe(struct platform_device *pdev,
 	struct cam_cpas *cpas_core = NULL;
 	struct cam_cpas_private_soc *soc_private;
 	struct cam_cpas_internal_ops *internal_ops;
-	struct cam_worker_wrapper_init_args worker_init_args = {0};
 
 	cpas_hw_intf = CAM_MEM_ZALLOC(sizeof(struct cam_hw_intf), GFP_KERNEL);
 	if (!cpas_hw_intf)
@@ -5342,16 +5288,9 @@ int cam_cpas_hw_probe(struct platform_device *pdev,
 	cpas_hw_intf->hw_ops.write = NULL;
 	cpas_hw_intf->hw_ops.process_cmd = cam_cpas_hw_process_cmd;
 
-	worker_init_args.name = CAM_CPAS_WORKER_NAME;
-	worker_init_args.num_tasks = 100;
-	worker_init_args.max_active = CAM_CPAS_INFLIGHT_WORKS;
-	worker_init_args.in_irq = WORKER_USAGE_IRQ;
-	worker_init_args.flag = CAM_WORKER_FLAG_MEM_RECLAIM | CAM_WORKER_FLAG_UNBOUND;
-	worker_init_args.priv_data = NULL;
-	worker_init_args.index = 0;
-	worker_init_args.worker_ctx_priv = &cpas_core->worker_ctx;
-	rc = cam_worker_wrapper_init(&worker_init_args, WORKER_CLASS_NRT);
-	if (!cpas_core->worker_ctx) {
+	cpas_core->work_queue = alloc_workqueue(CAM_CPAS_WORKQUEUE_NAME,
+		WQ_UNBOUND | WQ_MEM_RECLAIM, CAM_CPAS_INFLIGHT_WORKS);
+	if (!cpas_core->work_queue) {
 		rc = -ENOMEM;
 		goto release_mem;
 	}
@@ -5489,8 +5428,8 @@ deinit_platform_res:
 sysfs_fail:
 	cam_cpas_soc_deinit_resources(&cpas_hw->soc_info);
 release_workq:
-	cam_worker_wrapper_flush(cpas_core->worker_ctx);
-	cam_worker_wrapper_deinit(cpas_core->worker_ctx);
+	flush_workqueue(cpas_core->work_queue);
+	destroy_workqueue(cpas_core->work_queue);
 release_mem:
 	mutex_destroy(&cpas_hw->hw_mutex);
 	CAM_MEM_FREE(cpas_core);
@@ -5525,8 +5464,8 @@ int cam_cpas_hw_remove(struct cam_hw_intf *cpas_hw_intf)
 	cam_cpas_util_client_cleanup(cpas_hw);
 	cam_cpas_soc_deinit_resources(&cpas_hw->soc_info);
 	cpas_core->dentry = NULL;
-	cam_worker_wrapper_flush(cpas_core->worker_ctx);
-	cam_worker_wrapper_deinit(cpas_core->worker_ctx);
+	flush_workqueue(cpas_core->work_queue);
+	destroy_workqueue(cpas_core->work_queue);
 	mutex_destroy(&cpas_hw->hw_mutex);
 	CAM_MEM_FREE(cpas_core);
 	CAM_MEM_FREE(cpas_hw);

@@ -26,10 +26,6 @@
 #include <linux/clk/qcom.h>
 #endif
 
-#if IS_ENABLED(CONFIG_COMMON_CLK_QCOM)
-#include <linux/clk/qcom.h>
-#endif
-
 #define CAM_TO_MASK(bitn)          (1 << (int)(bitn))
 #define CAM_IS_BIT_SET(mask, bit)  ((mask) & CAM_TO_MASK(bit))
 #define CAM_SET_BIT(mask, bit)     ((mask) |= CAM_TO_MASK(bit))
@@ -100,6 +96,11 @@ struct cam_clk_wrapper_client {
 	struct cam_hw_soc_info *soc_info;
 	struct clk *clk;
 	int64_t curr_clk_rate;
+};
+
+struct gpd_dev_fake {
+	struct device *dev;
+	struct list_head list_node;
 };
 
 static char supported_clk_info[256];
@@ -609,6 +610,77 @@ inline int cam_wrapper_regulator_set_mode(
 	return temp;
 }
 
+/* xiaomi add begin */
+static inline int cam_wrapper_regulator_is_supported_voltage(
+	struct regulator *regulator, unsigned int min_uV, unsigned int max_uV, const char *name)
+{
+	struct timespec64 ts1, ts2;
+	long usec = 0;
+	int temp;
+
+	if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
+		CAM_WARN(CAM_UTIL, "Bypass regulator is supported voltage");
+		return 0;
+	}
+
+	CAM_SAVE_START_TIMESTAMP_IF(ts1);
+
+	temp = regulator_is_supported_voltage(regulator, min_uV, max_uV);
+
+	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
+		"ClkRegBusOpsProfile: regulator_is_supported_voltage (name, time taken in usec)", name);
+
+	return temp;
+}
+
+static inline int cam_wrapper_regulator_get_voltage(
+	struct regulator *regulator, const char *name)
+{
+	struct timespec64 ts1, ts2;
+	long usec = 0;
+	int voltage_value = 0;
+
+	if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
+		CAM_WARN(CAM_UTIL, "Bypass regulator voltage read");
+		return 0xffffffff;
+	}
+
+	voltage_value = regulator_get_voltage(regulator);
+
+	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
+		"Regulator voltage read time (usec)", name);
+
+	return voltage_value;
+}
+
+static inline int cam_wrapper_regulator_list_voltage(
+	struct regulator *regulator, const char *name)
+{
+	struct timespec64 ts1, ts2;
+	long usec = 0;
+	int support_count = 0, i = 0;
+
+	if (debug_bypass_drivers & CAM_BYPASS_RGLTR) {
+		CAM_WARN(CAM_UTIL, "Bypass regulator voltage list");
+		return 0xffffffff;
+	}
+
+	for (i = 0; i < 10000; i++) {
+		int volt = regulator_list_voltage(regulator, i);
+		if (volt < 0) {
+			break;
+		}
+		support_count++;
+		CAM_DBG(CAM_UTIL, "%s supported voltage[%d]: %duV, support_count: %d", name, i, volt, support_count);
+	}
+
+	CAM_COMPUTE_TIME_TAKEN_IF(ts1, ts2, usec,
+		"Regulator voltage read time (usec)", name);
+
+	return support_count;
+}
+/* xiaomi add end */
+
 static inline int cam_wrapper_regulator_is_enabled(
 	struct regulator *regulator, const char *name)
 {
@@ -1098,8 +1170,6 @@ static int cam_soc_util_clk_aggregate_register_entry(
 		aggregate_clk->cmn_src_id = cmn_clk_id;
 		aggregate_clk->curr_clk_rate = 0;
 		aggregate_clk->clk_id = -1;
-		snprintf(aggregate_clk->name, CAM_MAX_CLK_NAME_LEN, "%s", clk_name);
-
 		INIT_LIST_HEAD(&aggregate_clk->list);
 		INIT_LIST_HEAD(&aggregate_clk->client_list);
 		list_add_tail(&aggregate_clk->list, &aggregate_clk_list);
@@ -3235,31 +3305,6 @@ end:
 	return rc;
 };
 
-int cam_soc_util_dump_clk(struct cam_hw_soc_info *soc_info)
-{
-	int i;
-
-	if (!soc_info) {
-		CAM_ERR(CAM_UTIL, "soc_info is NULL");
-		return -EINVAL;
-	}
-
-	for (i = 0; i < soc_info->num_clk; i++) {
-		if (!soc_info->clk[i])
-			continue;
-
-#if IS_ENABLED(CONFIG_COMMON_CLK_QCOM)
-		qcom_clk_dump(soc_info->clk[i], NULL, false);
-#else
-		CAM_INFO(CAM_UTIL, "[%s] idx = %d clk name = %s clk_rate=%lld",
-			soc_info->dev_name, i, soc_info->clk_name[i],
-			cam_wrapper_clk_get_rate(soc_info->clk[i], soc_info->clk_name[i]));
-#endif
-	}
-
-	return 0;
-}
-
 static int cam_soc_util_get_dt_gpio_req_tbl(struct device_node *of_node,
 	struct cam_soc_gpio_data *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size)
@@ -3281,7 +3326,7 @@ static int cam_soc_util_get_dt_gpio_req_tbl(struct device_node *of_node,
 	if (!val_array)
 		return -ENOMEM;
 
-	gconf->cam_gpio_req_tbl = CAM_MEM_ZALLOC_ARRAY(count, sizeof(struct cam_soc_gpio),
+	gconf->cam_gpio_req_tbl = CAM_MEM_ZALLOC_ARRAY(count, sizeof(struct gpio),
 		GFP_KERNEL);
 	if (!gconf->cam_gpio_req_tbl) {
 		rc = -ENOMEM;
@@ -3397,7 +3442,7 @@ static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 	}
 
 	gconf->cam_gpio_common_tbl = CAM_MEM_ZALLOC_ARRAY(gpio_array_size,
-				sizeof(struct cam_soc_gpio), GFP_KERNEL);
+				sizeof(struct gpio), GFP_KERNEL);
 	if (!gconf->cam_gpio_common_tbl) {
 		rc = -ENOMEM;
 		goto free_gpio_conf;
@@ -3435,7 +3480,7 @@ static int cam_soc_util_request_gpio_table(
 	uint8_t size = 0;
 	struct cam_soc_gpio_data *gpio_conf =
 			soc_info->gpio_data;
-	struct cam_soc_gpio *gpio_tbl = NULL;
+	struct gpio *gpio_tbl = NULL;
 
 
 	if (!gpio_conf) {
@@ -3644,6 +3689,8 @@ inline int cam_soc_util_turn_off_power_domain(struct cam_hw_soc_info *soc_info)
 {
 	int ret = 0;
 	struct generic_pm_domain *power_domain;
+	struct gpd_dev_fake *gpd_dev;
+	struct device *child;
 
 	if (!soc_info || !soc_info->dev) {
 		CAM_ERR(CAM_UTIL, "%s is NULL", soc_info? "soc_info->dev": "soc_info");
@@ -3660,8 +3707,52 @@ inline int cam_soc_util_turn_off_power_domain(struct cam_hw_soc_info *soc_info)
 
 	ret = pm_runtime_put_sync(soc_info->dev);
 	if (ret < 0) {
+		CAM_ERR(CAM_UTIL, "%s: Failed to turn off the power domain: %d, usage:%d state:%d",
+			soc_info->dev_name, ret,
+			atomic_read(&soc_info->dev->power.usage_count),
+			pm_runtime_active(soc_info->dev));
+		if (!list_empty(&power_domain->dev_list)) {
+			list_for_each_entry(gpd_dev, &power_domain->dev_list, list_node) {
+				child = gpd_dev->dev;
+				if (pm_runtime_active(child))
+					CAM_INFO(CAM_UTIL, "%s: Active child: %s usage_count=%d",
+						soc_info->dev_name,
+						dev_name(child),
+						atomic_read(&child->power.usage_count));
+			}
+		}
+
+		/* xiaomi add for power down retry start */
+		if ((ret == -EAGAIN) && pm_runtime_active(soc_info->dev))
+		{
+			CAM_WARN(CAM_UTIL, "%s: Try to turn off the power doamin again",
+				soc_info->dev_name);
+			for (int i = 0; i < 3; i++)
+			{
+				CAM_ERR(CAM_UTIL, "%s: retry turn off the power domain %d times",
+					soc_info->dev_name, i+1);
+
+				ret = pm_runtime_get_sync(soc_info->dev);
+				if (ret < 0) {
+					CAM_ERR(CAM_UTIL, "%s: Failed to turn on the power domain: %d",
+						soc_info->dev_name, ret);
+				}
+
+				ret = pm_runtime_put_sync(soc_info->dev);
+				if (ret)
+					CAM_WARN(CAM_UTIL, "%s: Failed to turn off pm again, rc:%d, usage:%d",
+						soc_info->dev_name, ret,
+						atomic_read(&soc_info->dev->power.usage_count));
+
+				if (ret != -EAGAIN)
+					break;
+			}
+		}
+		/* xiaomi add for power down retry end */
+
 		CAM_ERR(CAM_UTIL, "%s: Failed to turn off the power domain: %d",
 			soc_info->dev_name, ret);
+
 		return ret;
 	}
 
@@ -3735,11 +3826,9 @@ int cam_soc_util_get_dt_properties(struct cam_hw_soc_info *soc_info)
 {
 	struct device_node *of_node = NULL;
 	int count = 0, i = 0, rc = 0;
-	int reg_prop_cnt = 0;
 #ifdef CONFIG_SPECTRA_VMRM
 	int num_vmrm_resource_ids = 0;
 #endif
-	const char *mem_block_rw_prop;
 
 	if (!soc_info || !soc_info->dev)
 		return -EINVAL;
@@ -3759,18 +3848,6 @@ int cam_soc_util_get_dt_properties(struct cam_hw_soc_info *soc_info)
 			soc_info->dev_name);
 		count = 0;
 	}
-
-	reg_prop_cnt = of_property_count_strings(of_node, "reg-prop");
-	if (reg_prop_cnt <= 0) {
-		CAM_DBG(CAM_UTIL, "no reg-prop found for: %s",
-			soc_info->dev_name);
-		reg_prop_cnt = 0;
-	} else if (reg_prop_cnt != count) {
-		CAM_ERR(CAM_UTIL, "re name count:%d and prop-count:%d not matched",
-			count, reg_prop_cnt);
-		return -EINVAL;
-	}
-
 	soc_info->num_mem_block = count;
 
 	for (i = 0; i < soc_info->num_mem_block; i++) {
@@ -3779,21 +3856,6 @@ int cam_soc_util_get_dt_properties(struct cam_hw_soc_info *soc_info)
 		if (rc) {
 			CAM_ERR(CAM_UTIL, "failed to read reg-names at %d", i);
 			return rc;
-		}
-
-		if (reg_prop_cnt) {
-			rc = of_property_read_string_index(of_node, "reg-prop", i,
-				&mem_block_rw_prop);
-			if (rc) {
-				CAM_ERR(CAM_UTIL, "failed to read reg-prop at %d", i);
-				return rc;
-			}
-			if (strcmp(mem_block_rw_prop, "rw") == 0)
-				soc_info->mem_block_rw_prop[i] = true;
-			else
-				soc_info->mem_block_rw_prop[i] = false;
-		} else {
-			soc_info->mem_block_rw_prop[i] = true;
 		}
 		soc_info->mem_block[i] =
 			platform_get_resource_byname(soc_info->pdev,
@@ -3981,6 +4043,88 @@ int cam_soc_util_regulator_disable(struct regulator *rgltr,
 	return rc;
 }
 
+int cam_soc_util_get_regulator_enable(struct regulator *rgltr, const char *name)
+{
+	return cam_wrapper_regulator_is_enabled(rgltr, name);
+}
+
+/* xiaomi add begin */
+int cam_soc_util_regulator_get_voltage(struct regulator *regulator,
+	const char *name)
+{
+	return cam_wrapper_regulator_get_voltage(regulator, name);
+}
+
+int cam_soc_util_regulator_is_supported_voltage(struct cam_hw_soc_info *soc_info,
+	int32_t min_uV, int32_t max_uV, int32_t rgltr_ind)
+{
+	// check voltage
+	if (min_uV < soc_info->rgltr_min_volt[rgltr_ind] ||
+		max_uV > soc_info->rgltr_max_volt[rgltr_ind]) {
+		CAM_ERR(CAM_UTIL, "Voltage range [%duV, %duV] exceeds hardware limits [%duV, %duV] for %s",
+				min_uV, max_uV,
+				soc_info->rgltr_min_volt[rgltr_ind],
+				soc_info->rgltr_max_volt[rgltr_ind],
+				soc_info->rgltr_name[rgltr_ind]);
+		return -EINVAL;
+	}
+
+	if (cam_wrapper_regulator_is_supported_voltage(soc_info->rgltr[rgltr_ind],
+			min_uV, max_uV, soc_info->rgltr_name[rgltr_ind]) != 1) {
+		CAM_ERR(CAM_UTIL, "Regulator %s does not support voltage range [%duV, %duV]",
+				soc_info->rgltr_name[rgltr_ind], min_uV, max_uV);
+		return -EINVAL;
+	}
+
+	return 1;
+}
+
+int cam_soc_util_regulator_list_voltage(struct regulator *regulator,
+	const char *name)
+{
+	return cam_wrapper_regulator_list_voltage(regulator, name);
+}
+
+int cam_soc_util_regulator_set_voltage(struct regulator *rgltr,
+	const char *rgltr_name,
+	uint32_t rgltr_min_volt, uint32_t rgltr_max_volt,
+	uint32_t rgltr_op_mode, uint32_t rgltr_delay)
+{
+	int32_t rc = 0;
+
+	if (!rgltr) {
+		CAM_ERR(CAM_UTIL, "Invalid NULL parameter");
+		return -EINVAL;
+	}
+
+	if (cam_wrapper_regulator_count_voltages(rgltr, rgltr_name) > 0) {
+		CAM_DBG(CAM_UTIL, "[%s] voltage min=%d, max=%d",
+			rgltr_name, rgltr_min_volt, rgltr_max_volt);
+
+		rc = cam_wrapper_regulator_set_voltage(
+			rgltr, rgltr_min_volt, rgltr_max_volt, rgltr_name);
+		if (rc) {
+			CAM_ERR(CAM_UTIL, "%s set voltage failed", rgltr_name);
+			return rc;
+		}
+
+		rc = cam_wrapper_regulator_set_load(rgltr, rgltr_op_mode, rgltr_name);
+		if (rc) {
+			CAM_ERR(CAM_UTIL, "%s set optimum mode failed",
+				rgltr_name);
+			return rc;
+		}
+	}
+
+	if (rgltr_delay > 20)
+		msleep(rgltr_delay);
+	else if (rgltr_delay)
+		usleep_range(rgltr_delay * 1000,
+			(rgltr_delay * 1000) + 1000);
+
+	return rc;
+}
+/* xiaomi add end */
 
 int cam_soc_util_regulator_enable(struct regulator *rgltr,
 	const char *rgltr_name,
@@ -4280,7 +4424,6 @@ void __iomem * cam_soc_util_get_mem_base(
 	unsigned long mem_block_start,
 	unsigned long mem_block_size,
 	const char *mem_block_name,
-	bool mem_block_rw_prop,
 	uint32_t reserve_mem)
 {
 	void __iomem * mem_base;
@@ -4296,8 +4439,7 @@ void __iomem * cam_soc_util_get_mem_base(
 		}
 	}
 
-	mem_base = cam_compat_ioremap(mem_block_rw_prop,
-			mem_block_start, mem_block_size);
+	mem_base = ioremap(mem_block_start, mem_block_size);
 
 	if (!mem_base) {
 		CAM_ERR(CAM_UTIL, "get mem base failed");
@@ -4337,7 +4479,6 @@ void __iomem * cam_soc_util_get_mem_base(
 	unsigned long mem_block_start,
 	unsigned long mem_block_size,
 	const char *mem_block_name,
-	bool mem_block_rw_prop,
 	uint32_t reserve_mem)
 {
 	void __iomem * mem_base;
@@ -4468,7 +4609,6 @@ int cam_soc_util_request_platform_resource(
 			soc_info->mem_block[i]->start,
 			resource_size(soc_info->mem_block[i]),
 			soc_info->mem_block_name[i],
-			soc_info->mem_block_rw_prop[i],
 			soc_info->reserve_mem);
 
 		if (!soc_info->reg_map[i].mem_base) {
@@ -5164,8 +5304,7 @@ static int cam_soc_util_dump_dmi_ctxt_reg_range_user_buf(
 		goto end;
 	}
 	remain_len = buf_len - dump_args->offset;
-	min_len =  sizeof(struct cam_hw_soc_dump_header) +
-		(reg_read->num_pre_writes * 2 * sizeof(uint32_t)) +
+	min_len = (reg_read->num_pre_writes * 2 * sizeof(uint32_t)) +
 		(reg_read->dmi_data_read.num_values * 2 * sizeof(uint32_t)) +
 		sizeof(uint32_t);
 	if (remain_len < min_len) {
@@ -5273,8 +5412,8 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 	int                            rc = 0;
 	size_t                         buf_len;
 	uint8_t                       *dst;
-	size_t                         remain_len, min_len;
-	uint32_t                       reg_map_size = 0;
+	size_t                         remain_len;
+	uint32_t                       min_len, reg_map_size = 0;
 	uint32_t                      *waddr, *start;
 	uintptr_t                      cpu_addr;
 	struct cam_hw_soc_dump_header  *hdr;
@@ -5284,14 +5423,6 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 			"Invalid input args soc_info: %pK, dump_out_buffer: %pK reg_read: %pK",
 			soc_info, dump_args, reg_read);
 		return -EINVAL;
-	}
-
-	/* Validate num_values to prevent overflow */
-	if (reg_read->num_values >
-		((SIZE_MAX - sizeof(struct cam_hw_soc_dump_header) - sizeof(uint32_t)) /
-		(2 * sizeof(uint32_t)))) {
-		CAM_ERR(CAM_UTIL, "num_values too large: %u", reg_read->num_values);
-		return -EOVERFLOW;
 	}
 
 	rc = cam_mem_get_cpu_buf(dump_args->buf_handle, &cpu_addr, &buf_len);

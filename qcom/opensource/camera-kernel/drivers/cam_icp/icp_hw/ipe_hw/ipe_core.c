@@ -51,7 +51,7 @@ int cam_ipe_init_hw(void *device_priv,
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_ipe_device_core_info *core_info = NULL;
 	struct cam_icp_cpas_vote cpas_vote;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int rc = 0;
 
 	if (!device_priv) {
@@ -133,7 +133,7 @@ int cam_ipe_deinit_hw(void *device_priv,
 	struct cam_hw_info *ipe_dev = device_priv;
 	struct cam_hw_soc_info *soc_info = NULL;
 	struct cam_ipe_device_core_info *core_info = NULL;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int rc = 0;
 
 	if (!device_priv) {
@@ -446,12 +446,6 @@ int cam_ipe_process_cmd(void *device_priv, uint32_t cmd_type,
 		if (core_info->clk_enable == true)
 			cam_ipe_toggle_clk(soc_info, false);
 		core_info->clk_enable = false;
-		rc = cam_cpas_update_axi_floor_lvl(core_info->cpas_handle, 0);
-		if (rc)
-			CAM_ERR(CAM_PERF, "failed to reset axi floor level rc: %d", rc);
-		break;
-	case CAM_ICP_DEV_CMD_DUMP_CLK:
-		rc = cam_soc_util_dump_clk(soc_info);
 		break;
 	default:
 		CAM_ERR(CAM_ICP, "Invalid Cmd Type:%u", cmd_type);

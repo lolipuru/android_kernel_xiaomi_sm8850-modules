@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
-#include "cam_cci_dev.h"
-#include "cam_req_mgr_dev.h"
-#include "cam_cci_soc.h"
-#include "cam_cci_core.h"
-#include "camera_main.h"
-#include "uapi/linux/sched/types.h"
-#include "linux/sched/types.h"
-#include "linux/sched.h"
 #include <linux/pm_runtime.h>
+
+#include "cam_cci_core.h"
+#include "cam_cci_dev.h"
+#include "cam_cci_soc.h"
+#include "cam_req_mgr_dev.h"
+#include "camera_main.h"
+/* xiaomi add for cci debug start*/
+#include "cam_cci_debug_util.h"
+/* xiaomi add for cci debug end*/
 
 #define CCI_MAX_DELAY 1000000
 #define QUEUE_SIZE 100
@@ -30,6 +31,9 @@ static struct dentry *debugfs_root;
 static struct cci_irq_data cci_irq_queue[QUEUE_SIZE] = { 0 };
 static int32_t head;
 static int32_t tail;
+/* xiaomi modified for cci debug start */
+static struct dentry *debugfs_qup;
+/* xiaomi modified for cci debug end */
 
 static inline int32_t increment_index(int32_t index)
 {
@@ -61,7 +65,7 @@ static long cam_cci_subdev_ioctl(struct v4l2_subdev *sd,
 
 	switch (cmd) {
 	case VIDIOC_MSM_CCI_CFG:
-		rc = -EOPNOTSUPP;
+		rc = cam_cci_core_cfg(sd, arg);
 		break;
 	case VIDIOC_CAM_CONTROL:
 		break;
@@ -89,7 +93,7 @@ irqreturn_t cam_cci_irq(int irq_num, void *data)
 	struct cam_hw_soc_info *soc_info =
 		&cci_dev->soc_info;
 	void __iomem *base = soc_info->reg_map[0].mem_base;
-	unsigned long flags = 0;
+	unsigned long flags;
 	bool rd_done_th_assert = false;
 	struct cam_cci_master_info *cci_master_info;
 	irqreturn_t rc = IRQ_HANDLED;
@@ -464,6 +468,9 @@ irqreturn_t cam_cci_irq(int irq_num, void *data)
 				trace_cam_cci_burst(cci_dev->soc_info.index, 0, 0,
 					"NACK_ERROR irq0", irq_status0);
 			}
+			/* xiaomi add for cci cmds dump start */
+			cam_cci_cmds_dump(cci_dev, MASTER_0, QUEUE_0);
+			/* xiaomi add for cci cmds dump end */
 			cam_cci_dump_registers(cci_dev, MASTER_0,
 					QUEUE_0);
 			if ((cci_dev->cci_master_info[MASTER_0].th_irq_ref_cnt[QUEUE_0]) > 0) {
@@ -485,6 +492,9 @@ irqreturn_t cam_cci_irq(int irq_num, void *data)
 				trace_cam_cci_burst(cci_dev->soc_info.index, 0, 1,
 					"NACK_ERROR irq0", irq_status0);
 			}
+			/* xiaomi add for cci cmds dump start */
+			cam_cci_cmds_dump(cci_dev, MASTER_0, QUEUE_1);
+			/* xiaomi add for cci cmds dump end */
 			cam_cci_dump_registers(cci_dev, MASTER_0,
 					QUEUE_1);
 			if ((cci_dev->cci_master_info[MASTER_0].th_irq_ref_cnt[QUEUE_1]) > 0) {
@@ -520,6 +530,9 @@ irqreturn_t cam_cci_irq(int irq_num, void *data)
 				trace_cam_cci_burst(cci_dev->soc_info.index, 1, 0,
 					"NACK_ERROR irq0", irq_status0);
 			}
+			/* xiaomi add for cci cmds dump start */
+			cam_cci_cmds_dump(cci_dev, MASTER_1, QUEUE_0);
+			/* xiaomi add for cci cmds dump end */
 			cam_cci_dump_registers(cci_dev, MASTER_1,
 					QUEUE_0);
 			if ((cci_dev->cci_master_info[MASTER_1].th_irq_ref_cnt[QUEUE_0]) > 0) {
@@ -541,6 +554,9 @@ irqreturn_t cam_cci_irq(int irq_num, void *data)
 				trace_cam_cci_burst(cci_dev->soc_info.index, 1, 1,
 					"NACK_ERROR irq0", irq_status0);
 			}
+			/* xiaomi add for cci cmds dump start */
+			cam_cci_cmds_dump(cci_dev, MASTER_1, QUEUE_1);
+			/* xiaomi add for cci cmds dump end */
 			cam_cci_dump_registers(cci_dev, MASTER_1,
 				QUEUE_1);
 			if ((cci_dev->cci_master_info[MASTER_1].th_irq_ref_cnt[QUEUE_1]) > 0) {
@@ -572,7 +588,7 @@ irqreturn_t cam_cci_threaded_irq(int irq_num, void *data)
 	struct cam_hw_soc_info *soc_info =
 		&cci_dev->soc_info;
 	struct cci_irq_data cci_data;
-	unsigned long flags = 0;
+	unsigned long flags;
 	uint32_t triggerHalfQueue = 1;
 	struct task_struct *task = current;
 
@@ -662,10 +678,12 @@ DEFINE_DEBUGFS_ATTRIBUTE(cam_cci_debug,
 
 static int cam_cci_create_debugfs_entry(struct cci_device *cci_dev)
 {
-	int rc = 0;
-	uint32_t idx;
+	int rc = 0, idx;
 	struct dentry *dbgfileptr = NULL;
 	static char * const filename[] = { "en_dump_cci0", "en_dump_cci1", "en_dump_cci2"};
+	/* xiaomi add for cci debug start*/
+	char debugfs_name[DEBUGFS_NAME_MAX_SIZE];
+	/* xiaomi add for cci debug end*/
 
 	if (!cam_debugfs_available())
 		return 0;
@@ -678,6 +696,18 @@ static int cam_cci_create_debugfs_entry(struct cci_device *cci_dev)
 		}
 		debugfs_root = dbgfileptr;
 	}
+	/* xiaomi modified for cci debug start */
+	if (!debugfs_qup) {
+		snprintf(debugfs_name, DEBUGFS_NAME_MAX_SIZE, "qup");
+		dbgfileptr = debugfs_create_dir(debugfs_name, debugfs_root);
+		if (!dbgfileptr) {
+			CAM_ERR(CAM_CCI, "qup debugfs directory creation fail");
+			rc = -ENOENT;
+			return 0;
+		}
+		debugfs_qup = dbgfileptr;
+	}
+	/* xiaomi modified for cci debug end */
 
 	idx = cci_dev->soc_info.index;
 	if (idx >= ARRAY_SIZE(filename)) {
@@ -686,6 +716,16 @@ static int cam_cci_create_debugfs_entry(struct cci_device *cci_dev)
 	}
 
 	debugfs_create_file(filename[idx], 0644, debugfs_root, cci_dev, &cam_cci_debug);
+	/* xiaomi modified for cci debug start*/
+	snprintf(debugfs_name, DEBUGFS_NAME_MAX_SIZE, "cci%d",
+		cci_dev->soc_info.index);
+	dbgfileptr = debugfs_create_dir(debugfs_name, debugfs_root);
+	if (!dbgfileptr) {
+		CAM_ERR(CAM_CCI, "debugfs directory creation fail");
+		rc = -ENOENT;
+		return 0;
+	}
+	/* xiaomi modified for cci debug end*/
 
 	return 0;
 }
@@ -698,6 +738,9 @@ static int cam_cci_component_bind(struct device *dev,
 	struct cam_hw_soc_info *soc_info = NULL;
 	int rc = 0;
 	struct platform_device *pdev = to_platform_device(dev);
+	/* xiaomi add for cci cmds dump start */
+	uint32_t *cci_write_cmds0, *cci_write_cmds1;
+	/* xiaomi add for cci cmds dump start */
 	struct timespec64 ts_start, ts_end;
 	long microsec = 0;
 
@@ -709,6 +752,8 @@ static int cam_cci_component_bind(struct device *dev,
 		return -ENOMEM;
 	}
 	soc_info = &new_cci_dev->soc_info;
+
+	pm_suspend_ignore_children(dev, true);
 
 	new_cci_dev->v4l2_dev_str.pdev = pdev;
 
@@ -776,6 +821,27 @@ static int cam_cci_component_bind(struct device *dev,
 	}
 	head = 0;
 	tail = 0;
+
+	/* xiaomi add for cci cmds dump start */
+	cci_write_cmds0 = kvcalloc(CCI_I2C_CMDS_SNAPSHOT_MAX_COUNT,
+		sizeof(uint32_t), GFP_KERNEL);
+	if (!cci_write_cmds0) {
+		CAM_ERR(CAM_CCI, "Memory allocation failed for master0 cmds");
+		return -ENOMEM;
+	}
+	new_cci_dev->cci_master_info[CCI_MASTER_0].cci_write_cmds =
+		cci_write_cmds0;
+
+	cci_write_cmds1 = kvcalloc(CCI_I2C_CMDS_SNAPSHOT_MAX_COUNT,
+		sizeof(uint32_t), GFP_KERNEL);
+	if (!cci_write_cmds1) {
+		CAM_ERR(CAM_CCI, "Memory allocation failed for master1 cmds");
+		return -ENOMEM;
+	}
+	new_cci_dev->cci_master_info[CCI_MASTER_1].cci_write_cmds =
+		cci_write_cmds1;
+	/* xiaomi add for cci cmds dump end */
+
 	CAM_DBG(CAM_CCI, "Component bound successfully");
 	CAM_GET_TIMESTAMP(ts_end);
 	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
@@ -836,7 +902,6 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 	CAM_DBG(CAM_CCI, "Adding CCI component");
 
 	cam_soc_util_initialize_power_domain(&pdev->dev);
-	pm_suspend_ignore_children(&pdev->dev, true);
 
 	rc = component_add(&pdev->dev, &cam_cci_component_ops);
 	if (rc)

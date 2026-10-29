@@ -21,6 +21,11 @@
 #include "cam_sensor_io.h"
 #include "cam_csiphy_core.h"
 
+// xiaomi add begin
+#define MAX_CCI_DEV         4
+#define MAX_MASTER_DEV      3
+// xiaomi add end
+
 #define INVALID_VREG 100
 #define RES_MGR_GPIO_NEED_HOLD   1
 #define RES_MGR_GPIO_CAN_FREE    2
@@ -92,6 +97,11 @@ int32_t cam_sensor_handle_continuous_read(
 	struct list_head **list,
 	struct cam_buf_io_cfg *io_cfg);
 
+int cam_sensor_set_voltage_command_parser(
+	struct cam_cmd_buf_desc *cmd_desc,
+	struct cam_cmd_set_power_voltage **cam_cmd_set_power_voltage,
+	int *setting_num);
+
 int cam_sensor_i2c_command_parser(struct camera_io_master *io_master,
 	struct i2c_settings_array *i2c_reg_settings,
 	struct cam_cmd_buf_desc *cmd_desc, int32_t num_cmd_buffers,
@@ -104,6 +114,18 @@ int32_t cam_sensor_i2c_read_data(
 	struct i2c_settings_array *i2c_settings,
 	struct camera_io_master *io_master_info);
 
+//xiaomi add begain
+int32_t cam_sensor_i2c_read_and_write_data(
+	struct i2c_settings_array *i2c_settings,
+	struct camera_io_master *io_master_info);
+
+void init_power_sync_mutex(struct cam_sensor_cci_client *cci_client, int master);
+
+void lock_power_sync_mutex(struct cam_sensor_cci_client *cci_client, int master);
+
+void unlock_power_sync_mutex(struct cam_sensor_cci_client *cci_client, int master);
+//xiaomi add end
+
 int32_t delete_request(struct i2c_settings_array *i2c_array);
 int cam_sensor_util_request_gpio_table(
 	struct cam_hw_soc_info *soc_info, int gpio_en);
@@ -113,6 +135,9 @@ int cam_sensor_util_init_gpio_pin_tbl(
 	struct msm_camera_gpio_num_info **pgpio_num_info);
 int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info, struct completion *i3c_probe_status);
+
+int cam_sensor_core_set_power_voltage(struct cam_hw_soc_info *soc_info,
+	struct cam_cmd_set_power_voltage *pwr_voltage_cmd);
 
 int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info);
@@ -150,6 +175,14 @@ int cam_sensor_util_parse_and_request_resources(struct camera_io_master *io_mast
 
 void cam_sensor_util_release_resources(struct camera_io_master *io_master_info,
 	struct cam_hw_soc_info *soc_info);
+int cam_sensor_util_add_read_buf_to_list(struct list_head *read_buf_list,
+	int32_t read_buffer_handle);
+
+void cam_sensor_util_release_read_buf(struct list_head *read_buf_list);
+
+//xiaomi add start
+bool xiaomi_hwid_compatible(void);
+//xiaomi add end
 
 int cam_sensor_util_add_read_buf_to_list(struct list_head *read_buf_list,
 	int32_t read_buffer_handle);

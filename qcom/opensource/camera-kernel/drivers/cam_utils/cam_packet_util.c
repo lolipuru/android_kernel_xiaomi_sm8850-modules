@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/types.h>
@@ -181,13 +181,9 @@ int cam_packet_util_get_kmd_buffer(struct cam_packet *packet,
 	}
 
 	remain_len -= (size_t)cmd_desc->offset;
-	if ((size_t)packet->kmd_cmd_buf_offset >= remain_len ||
-		(size_t)(cmd_desc->size - cmd_desc->length) >=
-		(remain_len - packet->kmd_cmd_buf_offset)) {
-		CAM_ERR(CAM_UTIL,
-			"Invalid kmd cmd buf offset: %d remain_len: %d cmd offset: %d size: %d length: %d",
-			packet->kmd_cmd_buf_offset, remain_len,
-			cmd_desc->offset, cmd_desc->size, cmd_desc->length);
+	if ((size_t)packet->kmd_cmd_buf_offset >= remain_len) {
+		CAM_ERR(CAM_UTIL, "Invalid kmd cmd buf offset: %zu",
+			(size_t)packet->kmd_cmd_buf_offset);
 		rc = -EINVAL;
 		goto rel_kmd_buf;
 	}
@@ -224,7 +220,6 @@ void cam_packet_util_dump_patch_info(struct cam_packet *packet,
 	int32_t    hdl;
 	uintptr_t  cpu_addr = 0;
 	uint32_t  *dst_cpu_addr;
-	uint32_t   dst_offset = 0;
 	uint32_t   flags, buf_fd;
 	uint32_t   value = 0;
 
@@ -282,26 +277,16 @@ void cam_packet_util_dump_patch_info(struct cam_packet *packet,
 			return;
 		}
 
-		dst_offset = patch_desc[i].dst_offset;
-
-		if ((dst_buf_len < sizeof(uint32_t)) ||
-			((dst_buf_len - sizeof(uint32_t)) < (size_t)dst_offset)) {
-			CAM_ERR(CAM_UTIL,
-				"Invalid dst buf patch at: %d src buf hdl 0x%llx src_buf address 0x%llx dst_buf_len 0x%zx, dst_offset 0x%x",
-				i, patch_desc[i].src_buf_hdl, iova_addr, dst_buf_len, dst_offset);
-			cam_mem_put_cpu_buf(patch_desc[i].dst_buf_hdl);
-			return;
-		}
-
 		dst_cpu_addr = (uint32_t *)cpu_addr;
-		dst_cpu_addr = (uint32_t *)((uint8_t *)dst_cpu_addr + dst_offset);
+		dst_cpu_addr = (uint32_t *)((uint8_t *)dst_cpu_addr +
+			patch_desc[i].dst_offset);
 		value = *dst_cpu_addr;
 		CAM_INFO(CAM_UTIL,
 			"i = %d src_buf 0x%llx src_hdl 0x%x src_buf_with_offset 0x%llx src_size 0x%llx src_flags: %x dst %p dst_offset %u dst_hdl 0x%x value 0x%x",
 			i, iova_addr, patch_desc[i].src_buf_hdl,
 			(iova_addr + patch_desc[i].src_offset),
 			src_buf_size, flags, dst_cpu_addr,
-			dst_offset,
+			patch_desc[i].dst_offset,
 			patch_desc[i].dst_buf_hdl, value);
 
 		if (!(*dst_cpu_addr))
@@ -660,7 +645,16 @@ void cam_packet_util_dump_io_bufs(struct cam_packet *packet,
 				io_cfg[i].offsets[j],
 				io_cfg[i].mem_handle[j]);
 		}
+
+		if (res_id_support)
+			return;
 	}
+
+	if (res_id_support)
+		CAM_ERR(CAM_UTIL,
+			"getting io port for mid resource id failed req id: %llu res id: 0x%x",
+			packet->header.request_id, resource_type);
+
 }
 
 int cam_packet_util_process_generic_blob(uint32_t length, uint32_t *blob_ptr,

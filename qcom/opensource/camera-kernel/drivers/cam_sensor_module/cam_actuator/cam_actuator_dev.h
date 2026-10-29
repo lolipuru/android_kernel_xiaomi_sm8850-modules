@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2019, 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022, 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -27,6 +27,10 @@
 #include "cam_soc_util.h"
 #include "cam_debug_util.h"
 #include "cam_context.h"
+#include "cam_parklens_thread.h" //xiaomi add
+/* xiaomi dev protection add*/
+#include  "xm_cam_dev_protection.h"
+/* xiaomi dev protection add*/
 
 #define NUM_MASTERS 2
 #define NUM_QUEUES 2
@@ -49,6 +53,7 @@ enum cam_actuator_state {
 	CAM_ACTUATOR_ACQUIRE,
 	CAM_ACTUATOR_CONFIG,
 	CAM_ACTUATOR_START,
+	CAM_ACTUATOR_PARKLENS, //xiaomi add
 };
 
 /**
@@ -99,12 +104,14 @@ struct actuator_intf_params {
  * @act_info              : Sensor query cap structure
  * @of_node               : Node ptr
  * @last_flush_req        : Last request to flush
- * @worker_ctx            : worker ctx for actuator
+ * @workq                 : work queue for actuator
  * @actuator_park_mutex   : Mutex for actuator park
  * @cam_act_park_state    : Actuator park state
  * @is_deferred_park_lens : Flag to specify deferred park lens
  * @park_lens_complete    : Indicator for park lens complete
  * @read_buf_list         : Actuator register read cmd buffer handle list
+ * @read_buf_lock         : Actuator register read cmd buffer mutex
+ * @cci_debug: Sensor debugfs info and entry
  */
 struct cam_actuator_ctrl_t {
 	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -121,11 +128,19 @@ struct cam_actuator_ctrl_t {
 	struct cam_actuator_query_cap act_info;
 	struct actuator_intf_params bridge_intf;
 	uint32_t last_flush_req;
-	void *worker_ctx;
+	struct cam_req_mgr_core_workq *workq;
 	struct mutex actuator_park_mutex;
 	bool is_deferred_park_lens;
 	struct completion park_lens_complete;
 	struct list_head read_buf_list;
+	struct mutex read_buf_lock;
+	/* xiaomi add for cci debug */
+	void *cci_debug;
+	struct cam_actuator_parklens_ctrl_t parklens_ctrl;
+	/* xiaomi add for cci debug */
+	/* xiaomi dev protection add*/
+	struct xm_cam_dev_info xm_cam_dev_info_data;
+	/* xiaomi dev protection add*/
 };
 
 /**
@@ -138,4 +153,8 @@ int cam_actuator_driver_init(void);
  * @brief : API to remove Actuator Hw from platform framework.
  */
 void cam_actuator_driver_exit(void);
+
+/* xiaomi dev protection add*/
+struct xm_cam_dev_info* get_actuator_xm_cam_dev_info(struct cam_actuator_ctrl_t *a_ctrl);
+/* xiaomi dev protection add*/
 #endif /* _CAM_ACTUATOR_DEV_H_ */

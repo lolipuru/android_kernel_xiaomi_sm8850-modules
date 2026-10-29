@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ratelimit.h>
@@ -16,6 +16,7 @@
 #include "cam_ife_hw_mgr.h"
 #include "cam_sfe_hw_intf.h"
 #include "cam_irq_controller.h"
+#include "cam_tasklet_util.h"
 #include "cam_sfe_bus_wr.h"
 #include "cam_sfe_core.h"
 #include "cam_sfe_soc.h"
@@ -26,8 +27,6 @@
 #include "cam_mem_mgr_api.h"
 
 static const char drv_name[] = "sfe_bus_wr";
-
-#define CAM_SFE_BUS_WR_DUMP_WM_WORDS  22
 
 #define CAM_SFE_BUS_WR_PAYLOAD_MAX             256
 
@@ -186,22 +185,22 @@ struct cam_sfe_bus_wr_out_data {
 };
 
 struct cam_sfe_bus_wr_priv {
-	struct cam_sfe_bus_wr_common_data            common_data;
-	uint32_t                                     num_client;
-	uint32_t                                     num_out;
-	uint32_t                                     max_out_res;
-	uint32_t                                     num_comp_grp;
-	uint32_t                                     top_irq_shift;
+	struct cam_sfe_bus_wr_common_data   common_data;
+	uint32_t                            num_client;
+	uint32_t                            num_out;
+	uint32_t                            max_out_res;
+	uint32_t                            num_comp_grp;
+	uint32_t                            top_irq_shift;
 
-	struct cam_isp_resource_node                *comp_grp;
-	struct cam_isp_resource_node                *sfe_out;
+	struct cam_isp_resource_node       *comp_grp;
+	struct cam_isp_resource_node       *sfe_out;
 
-	int                                          bus_irq_handle;
-	int                                          error_irq_handle;
-	void                                        *worker_ctx;
+	int                                 bus_irq_handle;
+	int                                 error_irq_handle;
+	void                               *tasklet_info;
 	struct cam_sfe_bus_wr_constraint_error_info *constraint_error_info;
-	struct cam_sfe_bus_sfe_out_hw_info          *sfe_out_hw_info;
-	struct cam_sfe_bus_wr_hw_info               *bus_wr_hw_info;
+	struct cam_sfe_bus_sfe_out_hw_info *sfe_out_hw_info;
+	struct cam_sfe_bus_wr_hw_info      *bus_wr_hw_info;
 };
 
 static int cam_sfe_bus_subscribe_error_irq(
@@ -668,7 +667,7 @@ static int cam_sfe_bus_config_rdi_wm(
 static int cam_sfe_bus_acquire_wm(
 	struct cam_sfe_bus_wr_priv             *bus_priv,
 	struct cam_sfe_hw_sfe_out_acquire_args *out_acq_args,
-	void                                   *worker_ctx,
+	void                                   *tasklet,
 	enum cam_sfe_bus_sfe_out_type           sfe_out_res_id,
 	enum cam_sfe_bus_plane_type             plane,
 	struct cam_isp_resource_node           *wm_res,
@@ -808,7 +807,7 @@ static int cam_sfe_bus_acquire_wm(
 	}
 
 	wm_res->res_state = CAM_ISP_RESOURCE_STATE_RESERVED;
-	wm_res->worker_ctx = worker_ctx;
+	wm_res->tasklet_info = tasklet;
 
 	CAM_DBG(CAM_SFE,
 		"SFE:%d WM:%d %s processed width:%d height:%d format:0x%X pack_fmt 0x%x %s",
@@ -842,7 +841,7 @@ static int cam_sfe_bus_release_wm(void   *bus_priv,
 	rsrc_data->enable_caching =  false;
 	rsrc_data->offset = 0;
 
-	wm_res->worker_ctx = NULL;
+	wm_res->tasklet_info = NULL;
 	wm_res->res_state = CAM_ISP_RESOURCE_STATE_AVAILABLE;
 
 	CAM_DBG(CAM_SFE, "SFE:%d Release WM:%d",
@@ -1034,7 +1033,7 @@ static void cam_sfe_bus_add_wm_to_comp_grp(
 static int cam_sfe_bus_acquire_comp_grp(
 	struct cam_sfe_bus_wr_priv           *bus_priv,
 	struct cam_isp_out_port_generic_info *out_port_info,
-	void                                 *worker_ctx,
+	void                                 *tasklet,
 	uint32_t                              is_dual,
 	uint32_t                              is_master,
 	struct cam_isp_resource_node         *comp_grp,
@@ -1047,7 +1046,7 @@ static int cam_sfe_bus_acquire_comp_grp(
 
 	if (comp_grp->res_state == CAM_ISP_RESOURCE_STATE_AVAILABLE) {
 		rsrc_data->intra_client_mask = 0x1;
-		comp_grp->worker_ctx = worker_ctx;
+		comp_grp->tasklet_info = tasklet;
 		comp_grp->res_state = CAM_ISP_RESOURCE_STATE_RESERVED;
 
 		rsrc_data->is_master = is_master;
@@ -1112,7 +1111,7 @@ static int cam_sfe_bus_release_comp_grp(
 		in_rsrc_data->addr_sync_mode = 0;
 		in_rsrc_data->composite_mask = 0;
 
-		in_comp_grp->worker_ctx = NULL;
+		in_comp_grp->tasklet_info = NULL;
 		in_comp_grp->res_state = CAM_ISP_RESOURCE_STATE_AVAILABLE;
 	}
 
@@ -1307,10 +1306,10 @@ static int cam_sfe_bus_acquire_sfe_out(void *priv, void *acquire_args,
 	}
 	mutex_unlock(&rsrc_data->common_data->bus_mutex);
 
-	bus_priv->worker_ctx = acq_args->worker_ctx;
+	bus_priv->tasklet_info = acq_args->tasklet;
 	rsrc_node->is_rdi_primary_res = false;
 	rsrc_node->res_id = out_acquire_args->out_port_info->res_type;
-	rsrc_node->worker_ctx = acq_args->worker_ctx;
+	rsrc_node->tasklet_info = acq_args->tasklet;
 	rsrc_node->cdm_ops = out_acquire_args->cdm_ops;
 	rsrc_data->cdm_util_ops = out_acquire_args->cdm_ops;
 	rsrc_data->format = out_acquire_args->out_port_info->format;
@@ -1319,7 +1318,7 @@ static int cam_sfe_bus_acquire_sfe_out(void *priv, void *acquire_args,
 	for (i = 0; i < rsrc_data->num_wm; i++) {
 		rc = cam_sfe_bus_acquire_wm(bus_priv,
 			out_acquire_args,
-			acq_args->worker_ctx,
+			acq_args->tasklet,
 			sfe_out_res_id,
 			i,
 			&rsrc_data->wm_res[i],
@@ -1337,7 +1336,7 @@ static int cam_sfe_bus_acquire_sfe_out(void *priv, void *acquire_args,
 	/* Acquire composite group using COMP GRP ID */
 	rc = cam_sfe_bus_acquire_comp_grp(bus_priv,
 		out_acquire_args->out_port_info,
-		acq_args->worker_ctx,
+		acq_args->tasklet,
 		out_acquire_args->is_dual,
 		out_acquire_args->is_master,
 		rsrc_data->comp_grp,
@@ -1402,7 +1401,7 @@ static int cam_sfe_bus_release_sfe_out(void *bus_priv, void *release_args,
 		cam_sfe_bus_release_comp_grp(bus_priv,
 			rsrc_data->comp_grp);
 
-	sfe_out->worker_ctx = NULL;
+	sfe_out->tasklet_info = NULL;
 	sfe_out->cdm_ops = NULL;
 	rsrc_data->cdm_util_ops = NULL;
 
@@ -1474,7 +1473,7 @@ static int cam_sfe_bus_wr_put_evt_payload(
 	struct cam_sfe_bus_wr_common_data      *common_data,
 	struct cam_sfe_bus_wr_irq_evt_payload **evt_payload)
 {
-	unsigned long flags = 0;
+	unsigned long flags;
 
 	if (!common_data) {
 		CAM_ERR(CAM_SFE, "Invalid param common_data NULL");
@@ -1561,7 +1560,8 @@ static int cam_sfe_bus_start_sfe_out(
 		sfe_out,
 		sfe_out->top_half_handler,
 		sfe_out->bottom_half_handler,
-		sfe_out->worker_ctx,
+		sfe_out->tasklet_info,
+		&tasklet_bh_api,
 		CAM_IRQ_EVT_GROUP_0);
 	if (sfe_out->irq_handle < 1) {
 		CAM_ERR(CAM_SFE, "Subscribe IRQ failed for sfe out_res: %d",
@@ -2084,9 +2084,6 @@ static int cam_sfe_bus_wr_user_dump(
 	struct cam_sfe_bus_wr_wm_resource_data    *wm = NULL;
 	struct cam_hw_info                        *hw_info = NULL;
 	struct cam_isp_hw_dump_args               *dump_args;
-	size_t                                     min_len;
-	size_t                                     remain_len;
-	uint32_t                                   total_wm = 0;
 	uint32_t                                   i, j = 0;
 	int                                        rc = 0;
 	int32_t                                    sfe_out_type;
@@ -2106,53 +2103,12 @@ static int cam_sfe_bus_wr_user_dump(
 		return -EINVAL;
 	}
 
-	if (dump_args->buf_len <= dump_args->offset) {
-		CAM_WARN(CAM_ISP,
-			"SFE BUS WR: Dump buffer overshoot len %zu offset %zu",
-			dump_args->buf_len, dump_args->offset);
-		return -ENOSPC;
-	}
-
-	min_len = sizeof(struct cam_common_hw_dump_header) + sizeof(uint64_t);
-	remain_len = dump_args->buf_len - dump_args->offset;
-	if (remain_len < min_len) {
-		CAM_WARN(CAM_ISP,
-			"SFE BUS WR: Dump buffer exhaust remain %zu min %zu",
-			remain_len, min_len);
-		return -ENOSPC;
-	}
-
 	rc = cam_common_user_dump_helper(dump_args, cam_common_user_dump_clock,
 		hw_info, sizeof(uint64_t), "CLK_RATE_PRINT:");
 
 	if (rc) {
 		CAM_ERR(CAM_ISP, "SFE BUS WR: Clock dump failed, rc:%d", rc);
 		return rc;
-	}
-
-	/* Aggregate worst-case bytes for all WM dumps across active out resources. */
-	for (i = 0; i < bus_priv->num_out; i++) {
-		sfe_out_type = cam_sfe_bus_wr_get_out_type(bus_priv, i);
-		if ((sfe_out_type < 0) ||
-			(sfe_out_type >= CAM_SFE_BUS_SFE_OUT_MAX))
-			continue;
-		rsrc_node = &bus_priv->sfe_out[sfe_out_type];
-		if (rsrc_node->res_state < CAM_ISP_RESOURCE_STATE_RESERVED)
-			continue;
-		rsrc_data = rsrc_node->res_priv;
-		if (!rsrc_data)
-			continue;
-		total_wm += rsrc_data->num_wm;
-	}
-	min_len = (size_t)total_wm * (sizeof(struct cam_common_hw_dump_header) +
-			CAM_SFE_BUS_WR_DUMP_WM_WORDS * sizeof(uint32_t));
-
-	remain_len = dump_args->buf_len - dump_args->offset;
-	if (remain_len < min_len) {
-		CAM_WARN(CAM_ISP,
-			"SFE BUS WR: Dump buffer exhaust remain %zu min %zu (wm)",
-			remain_len, min_len);
-		return -ENOSPC;
 	}
 
 	for (i = 0; i < bus_priv->num_out; i++) {
@@ -2429,6 +2385,7 @@ static int cam_sfe_bus_subscribe_error_irq(
 		cam_sfe_bus_wr_handle_bus_irq,
 		NULL,
 		NULL,
+		NULL,
 		CAM_IRQ_EVT_GROUP_0);
 
 	if (bus_priv->bus_irq_handle < 1) {
@@ -2440,7 +2397,7 @@ static int cam_sfe_bus_subscribe_error_irq(
 	cam_irq_controller_register_dependent(common_data->sfe_irq_controller,
 		common_data->bus_irq_controller, top_irq_reg_mask);
 
-	if (bus_priv->worker_ctx != NULL) {
+	if (bus_priv->tasklet_info != NULL) {
 		bus_wr_error_irq_mask[0] = common_data->irq_err_mask;
 
 		bus_priv->error_irq_handle = cam_irq_controller_subscribe_irq(
@@ -2450,7 +2407,8 @@ static int cam_sfe_bus_subscribe_error_irq(
 			bus_priv,
 			cam_sfe_bus_wr_handle_err_irq_top_half,
 			cam_sfe_bus_wr_handle_err_irq_bottom_half,
-			bus_priv->worker_ctx,
+			bus_priv->tasklet_info,
+			&tasklet_bh_api,
 			CAM_IRQ_EVT_GROUP_0);
 
 		if (bus_priv->error_irq_handle < 1) {
@@ -2504,15 +2462,10 @@ static int cam_sfe_bus_wr_update_wm(void *priv, void *cmd_args,
 	}
 
 	reg_val_pair = &sfe_out_data->common_data->io_buf_update[0];
-	if (update_buf->use_scratch_cfg) {
+	if (update_buf->use_scratch_cfg)
 		CAM_DBG(CAM_SFE, "Using scratch buf config");
-	} else {
+	else
 		io_cfg = update_buf->wm_update->io_cfg;
-		if (!io_cfg) {
-			CAM_ERR(CAM_SFE, "Invalid IO_CFG");
-			return -EINVAL;
-		}
-	}
 
 	for (i = 0, j = 0; i < sfe_out_data->num_wm; i++) {
 		if (j >= (MAX_REG_VAL_PAIR_SIZE - MAX_BUF_UPDATE_REG_NUM * 2)) {

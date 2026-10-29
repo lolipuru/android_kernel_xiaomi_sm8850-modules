@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2018, 2020-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_sync_util.h"
+#include "cam_req_mgr_workq.h"
 #include "cam_common_util.h"
 #include "cam_mem_mgr_api.h"
-#include "cam_worker_wrapper_api.h"
 
 extern unsigned long cam_sync_monitor_mask;
 
@@ -610,7 +610,7 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx,
 
 	/* Decrement ref cnt for imported dma fence */
 	if (test_bit(CAM_GENERIC_FENCE_TYPE_DMA_FENCE, &row->ext_fence_mask)) {
-		cam_dma_fence_get_put_ref(false, row->dma_fence_info.dma_fence_row_idx, NULL);
+		cam_dma_fence_get_put_ref(false, row->dma_fence_info.dma_fence_row_idx);
 
 		/* Check if same dma fence is being released with the sync obj */
 		if (check_for_dma_release) {
@@ -655,33 +655,31 @@ int cam_sync_deinit_object(struct sync_table_row *table, uint32_t idx,
 	return 0;
 }
 
-int cam_sync_util_cb_dispatch(void *priv, void *data)
+void cam_sync_util_cb_dispatch(struct work_struct *cb_dispatch_work)
 {
-	struct sync_callback_info *cb_info = (struct sync_callback_info *)priv;
+	struct sync_callback_info *cb_info = container_of(cb_dispatch_work,
+		struct sync_callback_info,
+		cb_dispatch_work);
 	sync_callback sync_data = cb_info->callback_func;
 	void *cb = cb_info->callback_func;
 
 	cam_common_util_thread_switch_delay_detect(
-		"cam_sync_worker", "schedule", cb,
-		cb_info->worker_scheduled_ts,
-		CAM_WORKER_SCHEDULE_TIME_THRESHOLD);
+		"cam_sync_workq", "schedule", cb,
+		cb_info->workq_scheduled_ts,
+		CAM_WORKQ_SCHEDULE_TIME_THRESHOLD);
 	sync_data(cb_info->sync_obj, cb_info->status, cb_info->cb_data);
 
 	CAM_MEM_FREE(cb_info);
-
-	return 0;
 }
 
 void cam_sync_util_dispatch_signaled_cb(int32_t sync_obj,
 	uint32_t status, uint32_t event_cause)
 {
-	int                                      rc = 0;
-	struct sync_callback_info               *sync_cb;
-	struct sync_user_payload                *payload_info;
-	struct sync_callback_info               *temp_sync_cb;
-	struct sync_table_row                   *signalable_row;
-	struct sync_user_payload                *temp_payload_info;
-	struct cam_worker_wrapper_taskdata_args  task;
+	struct sync_callback_info  *sync_cb;
+	struct sync_user_payload   *payload_info;
+	struct sync_callback_info  *temp_sync_cb;
+	struct sync_table_row      *signalable_row;
+	struct sync_user_payload   *temp_payload_info;
 
 	signalable_row = sync_dev->sync_table + sync_obj;
 	if (signalable_row->state == CAM_SYNC_STATE_INVALID) {
@@ -701,22 +699,8 @@ void cam_sync_util_dispatch_signaled_cb(int32_t sync_obj,
 			cam_generic_fence_update_monitor_array(sync_obj,
 				&sync_dev->table_lock, sync_dev->mon_data,
 				CAM_FENCE_OP_UNREGISTER_ON_SIGNAL);
-		rc = cam_worker_wrapper_get(sync_dev->worker_ctx, &task);
-		if (rc) {
-			CAM_ERR(CAM_SYNC,
-				"Failed to get worker task for sync object:%s[%d]",
-				signalable_row->name,
-				sync_obj);
-		} else {
-			task.task_priority = WORKER_TASK_PRIORITY_0;
-			rc = cam_worker_wrapper_enqueue(sync_dev->worker_ctx, &task,
-				sync_cb, NULL, cam_sync_util_cb_dispatch);
-			if (rc)
-				CAM_ERR(CAM_SYNC,
-					"Failed to enqueue task for sync object:%s[%d]",
-					signalable_row->name,
-					sync_cb->sync_obj);
-		}
+		queue_work(sync_dev->work_queue,
+			&sync_cb->cb_dispatch_work);
 	}
 
 	/* Dispatch user payloads if any were registered earlier */

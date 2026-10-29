@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ISP_HW_MGR_H_
@@ -9,6 +9,7 @@
 
 #include <media/cam_defs.h>
 #include "cam_isp_hw_mgr_intf.h"
+#include "cam_tasklet_util.h"
 #include "cam_isp_hw.h"
 
 #define CAM_ISP_HW_NUM_MAX                       8
@@ -16,7 +17,7 @@
 /**
  * struct cam_isp_hw_mgr_ctx - common acquired context for managers
  *
- * @worker_ctx:            associated worker
+ * @takslet_info:          assciated tasklet
  * @event_cb:              call back interface to ISP context. Set during
  *                         acquire device
  * @cb_priv:               first argument for the call back function
@@ -27,7 +28,7 @@
  *
  */
 struct cam_isp_hw_mgr_ctx {
-	void                           *worker_ctx;
+	void                           *tasklet_info;
 	cam_hw_event_cb_func            event_cb;
 	void                           *cb_priv;
 	cam_ctx_mini_dump_cb_func       mini_dump_cb;
@@ -37,7 +38,7 @@ struct cam_isp_hw_mgr_ctx {
 /**
  * struct cam_isp_hw_mgr - ISP HW Manager common object
  *
- * @worker_pool:              Worker pool
+ * @tasklet_pool:             Tasklet pool
  * @img_iommu_hdl:            iommu memory handle for regular image buffer
  * @img_iommu_hdl_secure:     iommu memory handle for secure image buffer
  * @cmd_iommu_hdl:            iommu memory handle for regular command buffer
@@ -47,7 +48,7 @@ struct cam_isp_hw_mgr_ctx {
  *
  */
 struct cam_isp_hw_mgr {
-	void                           *worker_pool[CAM_CTX_MAX];
+	void                           *tasklet_pool[CAM_CTX_MAX];
 	int                             img_iommu_hdl;
 	int                             img_iommu_hdl_secure;
 	int                             cmd_iommu_hdl;

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 
@@ -14,453 +14,6 @@
 #include "cam_irq_controller.h"
 
 #define CAM_VFE_BUS_VER3_480_MAX_CLIENTS     26
-
-static struct cam_vfe_camif_ver3_module_desc vfe480_ipp_mod_desc[] = {
-	{
-		.id = 0,
-		.desc = "DEMUX",
-	},
-	{
-		.id  = 1,
-		.desc = "CHROMA_UP",
-	},
-	{
-		.id = 2,
-		.desc = "PEDESTAL",
-	},
-	{
-		.id = 3,
-		.desc = "LINEARIZATION",
-	},
-	{
-		.id = 4,
-		.desc = "BPC_PDPC",
-	},
-	{
-		.id = 5,
-		.desc = "HDR_BINCORRECT",
-	},
-	{
-		.id = 6,
-		.desc = "ABF",
-	},
-	{
-		.id = 7,
-		.desc = "LSC",
-	},
-	{
-		.id = 8,
-		.desc = "DEMOSAIC",
-	},
-	{
-		.id = 9,
-		.desc = "COLOR_CORRECT",
-	},
-	{
-		.id = 10,
-		.desc = "GTM",
-	},
-	{
-		.id = 11,
-		.desc = "GLUT",
-	},
-	{
-		.id = 12,
-		.desc = "COLOR_XFORM",
-	},
-	{
-		.id = 13,
-		.desc = "CROP_RND_CLAMP_PIXEL_RAW_OUT",
-	},
-	{
-		.id = 14,
-		.desc = "DOWNSCALE_MN_Y_FD_OUT",
-	},
-	{
-		.id  = 15,
-		.desc = "DOWNSCALE_MN_C_FD_OUT",
-	},
-	{
-		.id = 16,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_FD_OUT",
-	},
-	{
-		.id = 17,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_FD_OUT",
-	},
-	{
-		.id = 18,
-		.desc = "DOWNSCALE_MN_Y_DISP_OUT",
-	},
-	{
-		.id = 19,
-		.desc = "DOWNSCALE_MN_C_DISP_OUT",
-	},
-	{
-		.id = 20,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_DISP_OUT",
-	},
-	{
-		.id = 21,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_DISP_OUT",
-	},
-	{
-		.id = 22,
-		.desc = "DOWNSCALE_4TO1_Y_DISP_DS4_OUT",
-	},
-	{
-		.id = 23,
-		.desc = "DOWNSCALE_4TO1_C_DISP_DS4_OUT",
-	},
-	{
-		.id = 24,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_Y_DISP_DS4_OUT",
-	},
-	{
-		.id = 25,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_C_DISP_DS4_OUT",
-	},
-	{
-		.id = 26,
-		.desc = "DOWNSCALE_4TO1_Y_DISP_DS16_OUT",
-	},
-	{
-		.id = 27,
-		.desc = "DOWNSCALE_4TO1_C_DISP_DS16_OUT",
-	},
-	{
-		.id = 28,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_Y_DISP_DS16_OUT",
-	},
-	{
-		.id = 29,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_C_DISP_DS16_OUT",
-	},
-	{
-		.id = 30,
-		.desc = "DOWNSCALE_MN_Y_VID_OUT",
-	},
-	{
-		.id = 31,
-		.desc = "DOWNSCALE_MN_C_VID_OUT",
-	},
-	{
-		.id = 32,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT",
-	},
-	{
-		.id = 33,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT",
-	},
-	{
-		.id = 34,
-		.desc = "DSX_Y_VID_OUT",
-	},
-	{
-		.id = 35,
-		.desc = "DSX_C_VID_OUT",
-	},
-	{
-		.id = 36,
-		.desc = "CROP_RND_CLAMP_POST_DSX_Y_VID_OUT",
-	},
-	{
-		.id = 37,
-		.desc = "CROP_RND_CLAMP_POST_DSX_C_VID_OUT",
-	},
-	{
-		.id = 38,
-		.desc = "DOWNSCALE_4TO1_Y_VID_DS16_OUT",
-	},
-	{
-		.id = 39,
-		.desc = "DOWNSCALE_4TO1_C_VID_DS16_OUT",
-	},
-	{
-		.id = 40,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_Y_VID_DS16_OUT",
-	},
-	{
-		.id = 41,
-		.desc = "CROP_RND_CLAMP_POST_DOWNSCALE_4TO1_C_VID_DS16_OUT",
-	},
-	{
-		.id = 42,
-		.desc = "BLS",
-	},
-	{
-		.id = 43,
-		.desc = "STATS_TINTLESS_BG",
-	},
-	{
-		.id = 44,
-		.desc = "STATS_HDR_BHIST",
-	},
-	{
-		.id = 45,
-		.desc = "STATS_HDR_BE",
-	},
-	{
-		.id = 46,
-		.desc = "STATS_AWB_BG",
-	},
-	{
-		.id = 47,
-		.desc = "STATS_BHIST",
-	},
-	{
-		.id = 48,
-		.desc = "STATS_BAF",
-	},
-	{
-		.id = 49,
-		.desc = "STATS_RS",
-	},
-	{
-		.id = 50,
-		.desc = "STATS_CS",
-	},
-	{
-		.id = 51,
-		.desc = "STATS_IHIST",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_top_violation_irq_err_desc[] = {
-	{
-		.bitmask = BIT(7),
-		.err_name = "DSP IFE PROTOCOL VIOLATION",
-	},
-	{
-		.bitmask = BIT(8),
-		.err_name = "IFE DSP TX PROTOCOL VIOLATION",
-	},
-	{
-		.bitmask = BIT(9),
-		.err_name  = "DSP IFE RX PROTOCOL VIOLATION",
-	},
-	{
-		.bitmask = BIT(10),
-		.err_name  = "PP PREPROCESS VIOLATION",
-		.desc = "CCIF protocol violation within camif of RDI0 pipeline.",
-	},
-	{
-		.bitmask  = BIT(11),
-		.err_name  = "PP CAMIF VIOLATION",
-	},
-	{
-		.bitmask  = BIT(12),
-		.err_name  = "PP VIOLATION",
-	},
-	{
-		.bitmask = BIT(20),
-		.err_name  = "DSP_TX_VIOLATION:overflow on DSP interface TX path FIFO",
-	},
-	{
-		.bitmask = BIT(21),
-		.err_name  = "DSP_RX_VIOLATION:overflow on DSP interface RX path FIFO",
-	},
-	{
-		.bitmask  = BIT(28),
-		.err_name  = "DSP ERROR VIOLATION",
-	},
-	{
-		.bitmask  = BIT(29),
-		.err_name  = "DIAG VIOLATION: HBI is less than the minimum required HBI",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_top_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(9),
-		.err_name = "DSP OVERFLOW",
-	},
-	{
-		.bitmask = BIT(25),
-		.err_name = "PIXEL PIPE FRAME DROP",
-	},
-	{
-		.bitmask = BIT(31),
-		.err_name  = "PIXEL PIPE OVERFLOW",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_bus_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(0),
-		.err_name = "VID Y 1:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(1),
-		.err_name = "VID C 1:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(2),
-		.err_name  = "VID YC 4:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(3),
-		.err_name  = "VID YC 16:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask  = BIT(4),
-		.err_name  = "DISP Y 1:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask  = BIT(5),
-		.err_name  = "DISP C 1:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(6),
-		.err_name = "DISP YC 4:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(7),
-		.err_name = "DISP YC 16:1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(8),
-		.err_name  = "FD Y BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(9),
-		.err_name  = "FD C BUS OVERFLOW",
-	},
-	{
-		.bitmask  = BIT(10),
-		.err_name  = "PIXEL RAW DUMP BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(12),
-		.err_name = "STATS HDR BE BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(13),
-		.err_name = "STATS HDR BHIST BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(14),
-		.err_name  = "STATS TINTLESS BG BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(15),
-		.err_name  = "STATS AWB BG BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(16),
-		.err_name  = "STATS BHIST BUS OVERFLOW",
-	},
-	{
-		.bitmask  = BIT(17),
-		.err_name  = "STATS RS BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(18),
-		.err_name = "STATS CS BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(19),
-		.err_name = "STATS IHIST BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(20),
-		.err_name  = "STATS BAF BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(21),
-		.err_name  = "PDAF BUS OVERFLOW",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_rdi_top_violation_irq_err_desc[] = {
-	{
-		.bitmask = BIT(13),
-		.err_name = "PD CAMIF VIOLATION",
-	},
-	{
-		.bitmask = BIT(14),
-		.err_name = "PD VIOLATION",
-	},
-	{
-		.bitmask = BIT(15),
-		.err_name  = "LCR CAMIF VIOLATION",
-	},
-	{
-		.bitmask = BIT(16),
-		.err_name  = "LCR VIOLATION",
-		.desc = "CCIF protocol violation within camif of RDI0 pipeline.",
-	},
-	{
-		.bitmask  = BIT(17),
-		.err_name  = "RDI0 CAMIF VIOLATION",
-	},
-	{
-		.bitmask  = BIT(18),
-		.err_name  = "RDI1 CAMIF VIOLATION",
-	},
-	{
-		.bitmask = BIT(19),
-		.err_name  = "RDI2 CAMIF VIOLATION",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_rdi_top_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(21),
-		.err_name = "RDI2 FRAME DROP",
-	},
-	{
-		.bitmask = BIT(22),
-		.err_name = "RDI1 FRAME DROP",
-	},
-	{
-		.bitmask = BIT(23),
-		.err_name  = "RDI0 FRAME DROP",
-	},
-	{
-		.bitmask = BIT(24),
-		.err_name  = "PD PIPE FRAME DROP",
-	},
-	{
-		.bitmask = BIT(27),
-		.err_name = "RDI2 OVERFLOW",
-	},
-	{
-		.bitmask = BIT(28),
-		.err_name = "RDI1 OVERFLOW",
-	},
-	{
-		.bitmask = BIT(29),
-		.err_name  = "RDI0 OVERFLOW",
-	},
-	{
-		.bitmask = BIT(30),
-		.err_name  = "PD PIPE OVERFLOW",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe480_camif_rdi_bus_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(11),
-		.err_name = "CAMIF PD BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(22),
-		.err_name = "LCR BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(23),
-		.err_name  = "RDI0 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(24),
-		.err_name  = "RDI1 BUS OVERFLOW",
-	},
-	{
-		.bitmask  = BIT(25),
-		.err_name  = "RDI2 BUS OVERFLOW",
-	},
-};
 
 static struct cam_irq_register_set vfe480_top_irq_reg_set[3] = {
 	{
@@ -503,6 +56,7 @@ static struct cam_vfe_camif_ver3_pp_clc_reg vfe480_camif_reg = {
 	.debug_0                     = 0x000027F4,
 	.test_bus_ctrl               = 0x000027F8,
 	.spare                       = 0x000027FC,
+	.reg_update_cmd              = 0x00000034,
 };
 
 static struct cam_vfe_camif_ver3_reg_data vfe_480_camif_reg_data = {
@@ -534,23 +88,6 @@ static struct cam_vfe_camif_ver3_reg_data vfe_480_camif_reg_data = {
 	.top_debug_cfg_en                = 1,
 };
 
-static uint32_t vfe480_top_debug_reg[] = {
-	0x00000080,
-	0x00000084,
-	0x00000088,
-	0x0000008C,
-	0x0000009C,
-	0x000000A0,
-	0x000000A4,
-	0x000000A8,
-	0x000000AC,
-	0x000000B0,
-	0x000000B4,
-	0x000000B8,
-	0x000000BC,
-	0x000000C0,
-};
-
 static struct cam_vfe_top_ver3_reg_offset_common vfe480_top_common_reg = {
 	.hw_version               = 0x00000000,
 	.titan_version            = 0x00000004,
@@ -576,8 +113,20 @@ static struct cam_vfe_top_ver3_reg_offset_common vfe480_top_common_reg = {
 	.diag_sensor_status_1     = 0x00000098,
 	.bus_overflow_status      = 0x0000AA68,
 	.top_debug_cfg            = 0x000000DC,
-	.num_top_debug_reg        = ARRAY_SIZE(vfe480_top_debug_reg),
-	.top_debug                = vfe480_top_debug_reg,
+	.top_debug_0              = 0x00000080,
+	.top_debug_1              = 0x00000084,
+	.top_debug_2              = 0x00000088,
+	.top_debug_3              = 0x0000008C,
+	.top_debug_4              = 0x0000009C,
+	.top_debug_5              = 0x000000A0,
+	.top_debug_6              = 0x000000A4,
+	.top_debug_7              = 0x000000A8,
+	.top_debug_8              = 0x000000AC,
+	.top_debug_9              = 0x000000B0,
+	.top_debug_10             = 0x000000B4,
+	.top_debug_11             = 0x000000B8,
+	.top_debug_12             = 0x000000BC,
+	.top_debug_13             = 0x000000C0,
 };
 
 static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_rdi[3] = {
@@ -592,6 +141,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_rdi[3] = {
 		.lite_debug_0               = 0x9BF4,
 		.lite_test_bus_ctrl         = 0x9BF8,
 		.camif_lite_spare           = 0x9BFC,
+		.reg_update_cmd             = 0x34,
 	},
 	{
 		.lite_hw_version            = 0x9C00,
@@ -604,6 +154,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_rdi[3] = {
 		.lite_debug_0               = 0x9DF4,
 		.lite_test_bus_ctrl         = 0x9DF8,
 		.camif_lite_spare           = 0x9DFC,
+		.reg_update_cmd             = 0x34,
 	},
 	{
 		.lite_hw_version            = 0x9E00,
@@ -616,6 +167,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_rdi[3] = {
 		.lite_debug_0               = 0x9FF4,
 		.lite_test_bus_ctrl         = 0x9FF8,
 		.camif_lite_spare           = 0x9FFC,
+		.reg_update_cmd             = 0x34,
 	},
 };
 
@@ -675,6 +227,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_lcr = {
 	.lite_debug_0               = 0xA1F4,
 	.lite_test_bus_ctrl         = 0xA1F8,
 	.camif_lite_spare           = 0xA1FC,
+	.reg_update_cmd             = 0x0034,
 };
 
 static struct cam_vfe_camif_lite_ver3_reg_data vfe480_camif_lcr_reg_data = {
@@ -702,6 +255,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe480_camif_pd = {
 	.lite_debug_0               = 0xA5F4,
 	.lite_test_bus_ctrl         = 0xA5F8,
 	.camif_lite_spare           = 0xA5FC,
+	.reg_update_cmd             = 0x0034,
 };
 
 static struct cam_vfe_camif_lite_ver3_reg_data vfe480_camif_pd_reg_data = {
@@ -725,66 +279,25 @@ struct cam_vfe_camif_lite_ver3_hw_info rdi_hw_info_arr[CAM_VFE_RDI_VER2_MAX] = {
 		.common_reg     = &vfe480_top_common_reg,
 		.camif_lite_reg = &vfe480_camif_rdi[0],
 		.reg_data       = &vfe480_camif_rdi_reg_data[0],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe480_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe480_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe480_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe480_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask = 0x3F00,
-		.pd_violation_mask  = 0x0F0000,
 	},
 	{
 		.common_reg     = &vfe480_top_common_reg,
 		.camif_lite_reg = &vfe480_camif_rdi[1],
 		.reg_data       = &vfe480_camif_rdi_reg_data[1],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe480_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe480_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe480_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe480_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask = 0x3F00,
-		.pd_violation_mask  = 0x0F0000,
 	},
 	{
 		.common_reg     = &vfe480_top_common_reg,
 		.camif_lite_reg = &vfe480_camif_rdi[2],
 		.reg_data       = &vfe480_camif_rdi_reg_data[2],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe480_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe480_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe480_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe480_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe480_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask = 0x3F00,
-		.pd_violation_mask  = 0x0F0000,
 	},
 };
 
 static struct cam_vfe_top_ver3_hw_info vfe480_top_hw_info = {
 	.common_reg = &vfe480_top_common_reg,
 	.camif_hw_info = {
-		.common_reg                = &vfe480_top_common_reg,
-		.camif_reg                 = &vfe480_camif_reg,
-		.reg_data                  = &vfe_480_camif_reg_data,
-		.ipp_module_desc           = vfe480_ipp_mod_desc,
-		.num_top_violation_errors  = ARRAY_SIZE(vfe480_camif_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe480_camif_top_violation_irq_err_desc,
-		.num_top_overflow_errors   = ARRAY_SIZE(vfe480_camif_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe480_camif_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   = ARRAY_SIZE(vfe480_camif_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe480_camif_bus_overflow_irq_err_desc,
-		.violation_mask            = 0x3F,
+		.common_reg     = &vfe480_top_common_reg,
+		.camif_reg      = &vfe480_camif_reg,
+		.reg_data       = &vfe_480_camif_reg_data,
 		},
 	.pdlib_hw_info = {
 		.common_reg     = &vfe480_top_common_reg,
@@ -2230,7 +1743,7 @@ static struct cam_vfe_bus_ver3_hw_info vfe480_bus_hw_info = {
 			.error_description = "Meta Stride unalign"
 		},
 	},
-	.bus_err_irq_mask = { 0xD0000000, 0x0},
+
 	.num_comp_grp    = 14,
 	.comp_done_mask = {
 		BIT(6), BIT(7), BIT(8), BIT(9), BIT(10),

@@ -516,4 +516,5 @@ void inline cam_common_dec_idx(int32_t *val, int32_t step, int32_t max_val);
 int cam_common_wr_bus_read_hw_query(void __iomem *base,
 	struct cam_common_lut_info *lut,
 	struct cam_wr_bus_hw_query_info_v1 *query_ptr);
+
 #endif /* _CAM_COMMON_UTIL_H_ */

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ACTUATOR_CORE_H_
@@ -65,4 +65,46 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl, void *arg);
 void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl);
 
 struct completion *cam_actuator_get_i3c_completion(uint32_t index);
+
+/**
+ * @w: Workq process work structure
+ *
+ * This API handles the actuator workq process
+ */
+void cam_actuator_process_workq(struct work_struct *w);
+
+/* xiaomi add begin */
+/**
+ * @a_ctrl: Actuator ctrl structure
+ *
+ * This API init parklens info of a_ctrl
+ */
+int32_t init_parklens_info(struct cam_actuator_ctrl_t *a_ctrl);
+/**
+ * @a_ctrl: Actuator ctrl structure
+ *
+ * This API deinit parklens info of a_ctrl
+ */
+int32_t deinit_parklens_info(struct cam_actuator_ctrl_t *a_ctrl);
+/**
+ * @a_ctrl: Actuator ctrl structure
+ *
+ * This API query whether parklens power down or not
+ */
+bool is_parklens_power_down(struct cam_actuator_ctrl_t *a_ctrl);
+/**
+ * @a_ctrl: Actuator ctrl structure
+ *
+ * This API trigger a thread to do parklens
+ */
+int32_t parklens_thread_trigger(struct cam_actuator_ctrl_t *a_ctrl);
+/**
+ * @a_ctrl: Actuator ctrl structure
+ *
+ * This API stop parklens thread
+ */
+int32_t parklens_thread_stop(struct cam_actuator_ctrl_t *a_ctrl,
+	enum parklens_opcodes opcode);
+/* xiaomi add end */
+
 #endif /* _CAM_ACTUATOR_CORE_H_ */

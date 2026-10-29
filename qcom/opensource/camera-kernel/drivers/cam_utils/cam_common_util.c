@@ -39,7 +39,7 @@ int cam_common_util_get_string_index(const char **strings,
 
 	for (i = 0; i < num_strings; i++) {
 		if (strnstr(strings[i], matching_string, strlen(strings[i]))) {
-			CAM_DBG(CAM_UTIL, "matched %s : %d\n",
+			CAM_DBG(CAM_OIS, "matched %s : %d\n",
 				matching_string, i);
 			*index = i;
 			return 0;
@@ -891,10 +891,18 @@ int cam_common_mem_kdup(void **dst,
 	if (!in_task())
 		flag = GFP_ATOMIC;
 
-	*dst = kvzalloc(size, flag);
-	if (!*dst) {
-		CAM_ERR(CAM_UTIL, "Failed to allocate memory with size: %u", size);
-		return -ENOMEM;
+	if (size <= PAGE_SIZE) {
+		*dst = kvzalloc(size, flag);
+		if (!*dst) {
+			CAM_ERR(CAM_UTIL, "Failed to allocate memory with size: %u", size);
+			return -ENOMEM;
+		}
+	} else {
+		*dst = __vmalloc(size, flag|__GFP_ZERO);
+		if (!*dst) {
+			CAM_ERR(CAM_UTIL, "Failed to allocate memory with size: %u", size);
+			return -ENOMEM;
+		}
 	}
 
 	memcpy(*dst, src, size);

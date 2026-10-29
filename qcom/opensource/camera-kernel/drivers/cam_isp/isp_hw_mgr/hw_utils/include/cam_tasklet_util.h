@@ -111,4 +111,6 @@ int cam_tasklet_get_cmd(void *bottom_half, void **bh_cmd);
  */
 void cam_tasklet_put_cmd(void *bottom_half, void **bh_cmd);
 
+extern struct cam_irq_bh_api tasklet_bh_api;
+
 #endif /* _CAM_TASKLET_UTIL_H_ */

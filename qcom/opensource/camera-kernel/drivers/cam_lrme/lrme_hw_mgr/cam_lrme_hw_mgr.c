@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -21,7 +21,6 @@
 #include "cam_lrme_hw_soc.h"
 #include "cam_lrme_hw_mgr_intf.h"
 #include "cam_lrme_hw_mgr.h"
-#include "cam_worker_wrapper_api.h"
 
 static struct cam_lrme_hw_mgr g_lrme_hw_mgr;
 
@@ -481,28 +480,21 @@ static int cam_lrme_mgr_util_schedule_frame_req(
 	struct cam_lrme_hw_mgr *hw_mgr, struct cam_lrme_device *hw_device)
 {
 	int rc = 0;
-	struct cam_worker_wrapper_taskdata_args task;
+	struct crm_workq_task *task;
 	struct cam_lrme_mgr_work_data *work_data;
 
-	rc = cam_worker_wrapper_get(hw_device->worker_ctx, &task);
-	if (rc) {
+	task = cam_req_mgr_workq_get_task(hw_device->work);
+	if (!task) {
 		CAM_ERR(CAM_LRME, "Can not get task for worker");
 		return -ENOMEM;
 	}
 
-	work_data = (struct cam_lrme_mgr_work_data *)cam_worker_wrapper_get_task_payload(
-		hw_device->worker_ctx, &task);
-	if (!work_data) {
-		CAM_ERR(CAM_LRME, "get task payload failed.");
-		return -EINVAL;
-	}
-
+	work_data = (struct cam_lrme_mgr_work_data *)task->payload;
 	work_data->hw_device = hw_device;
 
+	task->process_cb = cam_lrme_mgr_util_submit_req;
 	CAM_DBG(CAM_LRME, "enqueue submit task");
-	task.task_priority = WORKER_TASK_PRIORITY_0;
-	rc = cam_worker_wrapper_enqueue(hw_device->worker_ctx, &task,
-		hw_mgr, work_data, cam_lrme_mgr_util_submit_req);
+	rc = cam_req_mgr_workq_enqueue_task(task, hw_mgr, CRM_TASK_PRIORITY_0);
 
 	return rc;
 }
@@ -1072,6 +1064,12 @@ static int cam_lrme_mgr_create_debugfs_entry(void)
 	return 0;
 }
 
+static void cam_req_mgr_process_workq_cam_lrme_device_submit_worker(
+	struct work_struct *w)
+{
+	cam_req_mgr_process_workq(w);
+}
+
 int cam_lrme_mgr_register_device(
 	struct cam_hw_intf *lrme_hw_intf,
 	struct cam_iommu_handle *device_iommu,
@@ -1080,7 +1078,6 @@ int cam_lrme_mgr_register_device(
 	struct cam_lrme_device *hw_device;
 	char buf[128];
 	int i, rc;
-	struct cam_worker_wrapper_init_args worker_init_args = {0};
 
 	hw_device = &g_lrme_hw_mgr.hw_device[lrme_hw_intf->hw_idx];
 
@@ -1094,26 +1091,22 @@ int cam_lrme_mgr_register_device(
 	INIT_LIST_HEAD(&hw_device->frame_pending_list_high);
 	INIT_LIST_HEAD(&hw_device->frame_pending_list_normal);
 
-	snprintf(buf, sizeof(buf), "cam_lrme_device_submit_worker%d", lrme_hw_intf->hw_idx);
-	CAM_DBG(CAM_LRME, "Create submit worker for %s", buf);
-
-	worker_init_args.name = buf;
-	worker_init_args.num_tasks = CAM_LRME_WORKER_NUM_TASK;
-	worker_init_args.max_active = 0;
-	worker_init_args.in_irq = WORKER_USAGE_NON_IRQ;
-	worker_init_args.flag = 0;
-	worker_init_args.priv_data = NULL;
-	worker_init_args.index = 0;
-	worker_init_args.worker_ctx_priv = &hw_device->worker_ctx;
-	rc = cam_worker_wrapper_init(&worker_init_args, WORKER_CLASS_NRT);
+	rc = snprintf(buf, sizeof(buf), "cam_lrme_device_submit_worker%d",
+		lrme_hw_intf->hw_idx);
+	CAM_DBG(CAM_LRME, "Create submit workq for %s", buf);
+	rc = cam_req_mgr_workq_create(buf,
+		CAM_LRME_WORKQ_NUM_TASK,
+		&hw_device->work, CRM_WORKQ_USAGE_NON_IRQ, 0,
+		cam_req_mgr_process_workq_cam_lrme_device_submit_worker);
 	if (rc) {
-		CAM_ERR(CAM_LRME, "Unable to create a worker, rc=%d", rc);
+		CAM_ERR(CAM_LRME,
+			"Unable to create a worker, rc=%d", rc);
 		return rc;
 	}
 
-	for (i = 0; i < CAM_LRME_WORKER_NUM_TASK; i++)
-		cam_worker_wrapper_payload_bind(
-			hw_device->worker_ctx, &hw_device->work_data[i], i);
+	for (i = 0; i < CAM_LRME_WORKQ_NUM_TASK; i++)
+		hw_device->work->task.pool[i].payload =
+			&hw_device->work_data[i];
 
 	if (hw_device->hw_intf.hw_ops.process_cmd) {
 		struct cam_lrme_hw_cmd_set_cb cb_args;
@@ -1127,7 +1120,7 @@ int cam_lrme_mgr_register_device(
 			&cb_args, sizeof(cb_args));
 		if (rc) {
 			CAM_ERR(CAM_LRME, "Register cb failed");
-			goto destroy_worker;
+			goto destroy_workqueue;
 		}
 		CAM_DBG(CAM_LRME, "cb registered");
 	}
@@ -1140,7 +1133,7 @@ int cam_lrme_mgr_register_device(
 			CAM_ERR(CAM_LRME, "Get caps failed");
 	} else {
 		CAM_ERR(CAM_LRME, "No get_hw_caps function");
-		goto destroy_worker;
+		goto destroy_workqueue;
 	}
 	g_lrme_hw_mgr.lrme_caps.dev_caps[lrme_hw_intf->hw_idx] =
 		hw_device->hw_caps;
@@ -1154,8 +1147,8 @@ int cam_lrme_mgr_register_device(
 	CAM_DBG(CAM_LRME, "device registration done");
 	return 0;
 
-destroy_worker:
-	cam_worker_wrapper_deinit(hw_device->worker_ctx);
+destroy_workqueue:
+	cam_req_mgr_workq_destroy(&hw_device->work);
 
 	return rc;
 }
@@ -1165,7 +1158,7 @@ int cam_lrme_mgr_deregister_device(int device_index)
 	struct cam_lrme_device *hw_device;
 
 	hw_device = &g_lrme_hw_mgr.hw_device[device_index];
-	cam_worker_wrapper_deinit(hw_device->worker_ctx);
+	cam_req_mgr_workq_destroy(&hw_device->work);
 	mutex_destroy(&hw_device->high_req_lock);
 	mutex_destroy(&hw_device->normal_req_lock);
 	memset(hw_device, 0x0, sizeof(struct cam_lrme_device));

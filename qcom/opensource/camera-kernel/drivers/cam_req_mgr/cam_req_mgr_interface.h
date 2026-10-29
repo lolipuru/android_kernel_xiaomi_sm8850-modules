@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_REQ_MGR_INTERFACE_H
@@ -212,6 +212,7 @@ enum cam_req_mgr_device_id {
 	CAM_REQ_MGR_DEVICE_EXTERNAL_2,
 	CAM_REQ_MGR_DEVICE_EXTERNAL_3,
 	CAM_REQ_MGR_DEVICE_TPG,
+	CAM_REQ_MGR_DEVICE_ZOOM,       //xiaomi add
 	CAM_REQ_MGR_DEVICE_ID_MAX,
 };
 
@@ -266,6 +267,7 @@ enum cam_req_mgr_msg_type {
 	CAM_REQ_MGR_MSG_UPDATE_DEVICE_INFO,
 	CAM_REQ_MGR_MSG_NOTIFY_FOR_SYNCED_RESUME,
 	CAM_REQ_MGR_MSG_CHECK_DYN_EOF_UNDER_RESUME,
+	CAM_REQ_MGR_MSG_NOTIFY_REQ_DONE,
 	CAM_REQ_MGR_MSG_MAX,
 };
 
@@ -463,6 +465,9 @@ struct cam_req_mgr_apply_request {
 	int32_t    report_if_bubble;
 	uint32_t   trigger_point;
 	uint64_t   last_applied_done_timestamp;
+//xiaomi add
+	int64_t    frame_id;
+//xiaomi add end
 	bool       re_apply;
 	bool       recovery;
 	bool       no_further_requests;
@@ -513,6 +518,7 @@ struct cam_req_mgr_link_evt_data {
 		bool frame_duration_changing;
 		bool is_recovery;
 		bool enable_eof_irq;
+		bool is_req_done;
 	} u;
 };
 

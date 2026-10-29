@@ -2530,8 +2530,6 @@ int cam_smmu_reserve_buf_region(enum cam_smmu_region_id region,
 	*iova = (uint32_t)region_info->iova_start;
 	/* Assign size mapped */
 	*request_len = size;
-	/* Track actual mapped length to avoid over-unmapping */
-	region_info->mapped_iova_len = size;
 	*is_buf_allocated = true;
 	mutex_unlock(&cb_info->lock);
 
@@ -2637,29 +2635,19 @@ int cam_smmu_release_buf_region(enum cam_smmu_region_id region,
 		return -ENOMEM;
 	}
 
-	/* Unmap only the portion that was actually mapped */
-	size_t unmap_len = region_info->mapped_iova_len ?
-		region_info->mapped_iova_len : region_info->iova_len;
-
-	if (unmap_len) {
-		size = iommu_unmap(cb_info->domain,
-			region_info->iova_start,
-			unmap_len);
-		if (size != unmap_len) {
-			CAM_ERR(CAM_SMMU, "Failed: Unmapped = %zu, requested = %zu",
-				size, unmap_len);
-		}
-	} else {
-		CAM_ERR(CAM_SMMU,
-			"Mapped length is zero for region %d on cb: %s, skipping unmap",
-			region, cb_info->name[0]);
+	size = iommu_unmap(cb_info->domain,
+		region_info->iova_start,
+		region_info->iova_len);
+	if (size != region_info->iova_len) {
+		CAM_ERR(CAM_SMMU, "Failed: Unmapped = %zu, requested = %zu",
+			size,
+			region_info->iova_len);
 	}
 
 	cam_compat_dmabuf_unmap_attach(buf_info->attach,
 		buf_info->table, DMA_BIDIRECTIONAL);
 	dma_buf_detach(buf_info->buf, buf_info->attach);
 	*is_buf_allocated = false;
-	region_info->mapped_iova_len = 0;
 	mutex_unlock(&cb_info->lock);
 
 	return 0;
@@ -4520,8 +4508,7 @@ static void cam_smmu_release_cb(struct platform_device *pdev)
 	for (i = 0; i < iommu_cb_set.cb_num; i++)
 		cam_smmu_deinit_cb(&iommu_cb_set.cb_info[i]);
 
-	CAM_MEM_FREE(iommu_cb_set.cb_info);
-	iommu_cb_set.cb_info = NULL;
+	devm_kfree(&pdev->dev, iommu_cb_set.cb_info);
 	iommu_cb_set.cb_num = 0;
 }
 
@@ -4648,8 +4635,9 @@ static int cam_alloc_smmu_context_banks(struct device *dev)
 	}
 
 	/* allocate memory for the context banks */
-	iommu_cb_set.cb_info = CAM_MEM_ZALLOC_ARRAY(iommu_cb_set.cb_num,
-		sizeof(struct cam_context_bank_info), GFP_KERNEL);
+	iommu_cb_set.cb_info = devm_kzalloc(dev,
+		iommu_cb_set.cb_num * sizeof(struct cam_context_bank_info),
+		GFP_KERNEL);
 
 	if (!iommu_cb_set.cb_info) {
 		CAM_ERR(CAM_SMMU, "Error: cannot allocate context banks");
@@ -4977,7 +4965,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 
 			cb->firmware_info.num_regions++;
 			cb->firmware_support = 1;
@@ -5009,7 +4996,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 
 			cb->shared_info.num_regions++;
 			cb->shared_support = 1;
@@ -5019,7 +5005,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 			cb->scratch_buf_support = 1;
 			cb->scratch_info.iova_start = region_start;
 			cb->scratch_info.iova_len = region_len;
-			cb->scratch_info.mapped_iova_len = 0;
 			break;
 		case CAM_SMMU_REGION_IO: {
 			int32_t num_io_regions = cb->io_info.num_regions;
@@ -5047,7 +5032,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 			rc = cam_smmu_get_discard_memory_regions(child_node,
 				&nested_reg_info->region_info.discard_iova_start,
 				&nested_reg_info->region_info.discard_iova_len);
@@ -5065,7 +5049,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 			cb->secheap_support = 1;
 			cb->secheap_info.iova_start = region_start;
 			cb->secheap_info.iova_len = region_len;
-			cb->secheap_info.mapped_iova_len = 0;
 			break;
 		case CAM_SMMU_REGION_FWUNCACHED:{
 			int32_t num_fwuncached_regions = cb->fwuncached_region.num_regions;
@@ -5094,7 +5077,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 
 			cb->fwuncached_region.num_regions++;
 			cb->fwuncached_region_support = 1;
@@ -5127,7 +5109,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 			/* phy-addr field is mandatory for QDSS */
 			rc = of_property_read_u32(child_node, "qdss-phy-addr",
 				(uint32_t *)&nested_reg_info->region_info.phy_addr);
@@ -5167,7 +5148,6 @@ static int cam_smmu_get_memory_regions_info(struct device_node *of_node,
 
 			nested_reg_info->region_info.iova_start = region_start;
 			nested_reg_info->region_info.iova_len = region_len;
-			nested_reg_info->region_info.mapped_iova_len = 0;
 
 			rc = of_property_read_u32(child_node,
 				"phy-addr", (uint32_t *)&nested_reg_info->region_info.phy_addr);

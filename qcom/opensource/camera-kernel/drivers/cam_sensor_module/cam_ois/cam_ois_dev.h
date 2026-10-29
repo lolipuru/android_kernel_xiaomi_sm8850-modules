@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef _CAM_OIS_DEV_H_
 #define _CAM_OIS_DEV_H_
@@ -22,13 +22,17 @@
 #include <cam_subdev.h>
 #include "cam_soc_util.h"
 #include "cam_context.h"
+#include "cam_parklens_thread.h" //xiaomi add
+/* xiaomi add begin */
+#include  "xm_cam_dev_protection.h"
+/* xiaomi add end */
 
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
 #define OIS_DRIVER_I2C "cam-i2c-ois"
 #define OIS_DRIVER_I3C "i3c_camera_ois"
-
+#define MAX_FW_COUNT   5 //xiaomi add
 enum cam_ois_state {
 	CAM_OIS_INIT,
 	CAM_OIS_ACQUIRE,
@@ -59,6 +63,16 @@ struct cam_ois_soc_private {
 	struct cam_ois_i2c_info_t i2c_info;
 	struct cam_sensor_power_ctrl_t power_info;
 };
+
+
+/* xiaomi add for fw store start */
+struct fw_store_info
+{
+	int  fw_count;
+	char *fw_name[MAX_FW_COUNT];
+	struct firmware *fw[MAX_FW_COUNT];
+};
+/* xiaomi add for fw store end */
 
 /**
  * struct cam_ois_intf_params - bridge interface params
@@ -118,7 +132,9 @@ struct cam_ois_fw_info {
  * @opcode          :   ois opcode
  * @device_name     :   Device name
  * @read_buf_list   :   ois register read cmd buffer handle list
+ * @read_buf_lock   :   ois register read cmd buffer mutex
  *
+ * @cci_debug       :   OIS debugfs info and entry
  */
 struct cam_ois_ctrl_t {
 	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -131,10 +147,12 @@ struct cam_ois_ctrl_t {
 	struct i2c_settings_array i2c_fwinit_data;
 	struct i2c_settings_array i2c_init_data;
 	struct i2c_settings_array i2c_calib_data;
+	struct i2c_settings_array i2c_postinit_data; // xiaomi add
+	struct i2c_settings_array i2c_motion_data; // xiaomi add
 	struct i2c_settings_array i2c_mode_data;
 	struct i2c_settings_array i2c_time_data;
 	enum cam_ois_state cam_ois_state;
-	char ois_name[32];
+	char ois_name[64];//xiaomi change from 32 to 64
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
@@ -143,6 +161,17 @@ struct cam_ois_ctrl_t {
 	struct i2c_settings_array* i2c_fw_finalize_data;
 	struct i2c_settings_array i2c_fw_version_data;
 	struct list_head read_buf_list;
+	struct mutex read_buf_lock;
+
+	struct fw_store_info fw_store; //xiaomi add
+	/* xiaomi add for cci debug */
+	void *cci_debug;
+	/* xiaomi add for cci debug */
+	struct cam_ois_parklens_ctrl_t parklens_ctrl; //xiaomi add
+	struct i2c_settings_array i2c_parklens_data;  // xiaomi add
+	/* xiaomi add begin */
+	struct xm_cam_dev_info xm_cam_dev_info_data;
+	/* xiaomi add end */
 };
 
 /**
@@ -155,4 +184,8 @@ int cam_ois_driver_init(void);
  * @brief : API to remove OIS Hw from platform framework.
  */
 void cam_ois_driver_exit(void);
+
+/* xiaomi dev protection add*/
+struct xm_cam_dev_info* get_ois_xm_cam_dev_info(struct cam_ois_ctrl_t *o_ctrl);
+/* xiaomi dev protection add*/
 #endif /*_CAM_OIS_DEV_H_ */

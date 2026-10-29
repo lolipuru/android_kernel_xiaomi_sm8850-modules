@@ -12,24 +12,9 @@
 #include "cam_isp_hw_mgr.h"
 #include "cam_vfe_hw_intf.h"
 #include "cam_ife_csid_hw_intf.h"
+#include "cam_tasklet_util.h"
 #include "cam_cdm_intf_api.h"
 #include "cam_cpas_api.h"
-
-/*
- * enum cam_ife_ctx_err_stream_type - Gives the stream type on fatal error. To mimic
- *                                    hw arrangements where fatal error on one sensor
- *                                    stream affects all other active sensor streams,
- *                                    this enum will be used to mark the streams as
- *                                    faulting or non-faulting, based on the origin
- *                                    stream of the fatal error in HW.
- * CAM_IFE_CTX_ERR_STREAM_FAULTING: IFE ctx/stream which is primarily faulting
- * CAM_IFE_CTX_ERR_STREAM_NON_FAULTING: IFE ctx/stream which is non-faulting
- */
-enum cam_ife_ctx_err_stream_type {
-	CAM_IFE_CTX_ERR_STREAM_NONE,
-	CAM_IFE_CTX_ERR_STREAM_FAULTING,
-	CAM_IFE_CTX_ERR_STREAM_NON_FAULTING,
-};
 
 /*
  * enum cam_ife_ctx_master_type - HW master type
@@ -308,7 +293,7 @@ struct cam_ife_hw_mgr_ctx_scratch_buf_info {
  *                         only rdi and PD resource without PIX port.
  * @dynamic_drv_supported: Indicate if the dynamic drv is supported
  * @skip_reg_dump_buf_put: Set if put_cpu_buf for reg dump buf is already called
- * @is_hw_ctx_acq:         If acquire for ife ctx is having hw ctx acquired
+ * @is_hw_ctx_acq:       If acquire for ife ctx is having hw ctx acquired
  *
  */
 struct cam_ife_hw_mgr_ctx_flags {
@@ -463,11 +448,6 @@ struct cam_cmd_buf_desc_addr_len {
  * @current_leading_dt:      Current leading dt for this ctx
  * @src_tbl:                Unique buf handle table for src buffers to accelerate patching process
  * @dst_tbl:                Unique buf handle table for dst buffers to accelerate patching process
- * @err_stream_type:        Indicate if current context is non-faulting or faulting while handling
- *                          error. In certain hw arrangements, fatal error on one sensor stream can
- *                          affect other sensor streams and their corresponding cores. In such
- *                          cases, ife context should have a hint of which stream is
- *                          non-faulting.
  */
 struct cam_ife_hw_mgr_ctx {
 	struct list_head                           list;
@@ -543,7 +523,6 @@ struct cam_ife_hw_mgr_ctx {
 	uint32_t                                   current_leading_dt;
 	struct cam_patch_unique_buf_tbl           *src_tbl;
 	struct cam_patch_unique_buf_tbl           *dst_tbl;
-	enum cam_ife_ctx_err_stream_type           err_stream_type;
 };
 
 /**
@@ -578,8 +557,6 @@ struct cam_isp_fcg_caps {
  * @max_dt_supported              :  max DT CSID can decode
  * @support_consumed_addr         :  indicate whether hw supports last consumed address
  * @support_buf_done_with_framehdr :  if target supports this scheme
- * @no_fault_stream_err_en:          Indicates if an error on a stream triggers error on
- *                                   non-faulting streams
  * @out_port_data                  : Data specific to output ports for validating acquire
 
  */
@@ -596,7 +573,6 @@ struct cam_isp_hw_caps {
 	bool                    support_consumed_addr;
 	struct cam_isp_hw_regiter_dump_data skip_regdump_data;
 	bool                    support_buf_done_with_framehdr;
-	bool                    no_fault_stream_err_en;
 	struct cam_isp_hw_out_port_data out_port_data;
 };
 /*
@@ -683,7 +659,7 @@ enum cam_isp_irq_inject_common_param_pos {
  * @ctx_pool:              context storage
  * @csid_hw_caps           csid hw capability stored per core
  * @ife_dev_caps           ife device capability per core
- * @worker_ctx             worker ctx for IFE hw manager
+ * @work q                 work queue for IFE hw manager
  * @debug_cfg              debug configuration
  * @ctx_lock               context lock
  * @isp_caps               Capability of underlying SFE/IFE HW
@@ -701,7 +677,6 @@ enum cam_isp_irq_inject_common_param_pos {
  * @csid_camif_irq_support CSID camif IRQ support
  * @cam_ddr_drv_support    DDR DRV support
  * @cam_clk_drv_support    CLK DRV support
- *
  */
 struct cam_ife_hw_mgr {
 	struct cam_isp_hw_mgr          mgr_common;
@@ -719,7 +694,7 @@ struct cam_ife_hw_mgr {
 	struct cam_ife_csid_hw_caps       csid_hw_caps[
 						CAM_IFE_CSID_HW_NUM_MAX];
 	struct cam_vfe_hw_get_hw_cap      ife_dev_caps[CAM_IFE_HW_NUM_MAX];
-	void                             *worker_ctx;
+	struct cam_req_mgr_core_workq    *workq;
 	struct cam_ife_hw_mgr_debug       debug_cfg;
 	spinlock_t                        ctx_lock;
 	struct cam_isp_hw_caps            isp_caps;

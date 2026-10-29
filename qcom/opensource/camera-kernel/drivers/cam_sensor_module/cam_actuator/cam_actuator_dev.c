@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_actuator_dev.h"
@@ -12,6 +12,19 @@
 #include "camera_main.h"
 #include "cam_compat.h"
 #include "cam_mem_mgr_api.h"
+#include "cam_cci_debug_util.h"
+
+/* xiaomi dev protection add*/
+#include "xm_cam_dev_protection.h"
+
+struct xm_cam_dev_info* get_actuator_xm_cam_dev_info(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	if (NULL == a_ctrl) {
+		return NULL;
+	}
+	return &(a_ctrl->xm_cam_dev_info_data);
+}
+/* xiaomi dev protection add*/
 
 static struct cam_i3c_actuator_data {
 	struct cam_actuator_ctrl_t                  *a_ctrl;
@@ -182,16 +195,16 @@ static int cam_actuator_init_subdev(struct cam_actuator_ctrl_t *a_ctrl)
 static int cam_actuator_i2c_component_bind(struct device *dev,
 	struct device *master_dev, void *data)
 {
-	int32_t                             rc = 0, i = 0;
-	struct i2c_client                  *client;
-	struct cam_actuator_ctrl_t         *a_ctrl;
-	struct cam_hw_soc_info             *soc_info = NULL;
-	struct cam_actuator_soc_private    *soc_private = NULL;
-	struct timespec64                   ts_start, ts_end;
-	long                                microsec = 0;
-	struct device_node                 *np = NULL;
-	const char                         *drv_name;
-	struct cam_worker_wrapper_init_args worker_init_args = {0};
+	int32_t                          rc = 0;
+	int32_t                          i = 0;
+	struct i2c_client               *client;
+	struct cam_actuator_ctrl_t      *a_ctrl;
+	struct cam_hw_soc_info          *soc_info = NULL;
+	struct cam_actuator_soc_private *soc_private = NULL;
+	struct timespec64                ts_start, ts_end;
+	long                             microsec = 0;
+	struct device_node              *np = NULL;
+	const char                      *drv_name;
 
 	CAM_GET_TIMESTAMP(ts_start);
 
@@ -266,23 +279,12 @@ static int cam_actuator_i2c_component_bind(struct device *dev,
 	mutex_init(&a_ctrl->actuator_park_mutex);
 	init_completion(&a_ctrl->park_lens_complete);
 
-	/* Initialize mutex and read buf list */
-	mutex_init(&(a_ctrl->actuator_mutex));
-	INIT_LIST_HEAD(&(a_ctrl->read_buf_list));
-
 	/* Create worker for actuator park with 1 task */
-	worker_init_args.name = "cam_actuator_worker";
-	worker_init_args.num_tasks = 1;
-	worker_init_args.max_active = 0;
-	worker_init_args.in_irq = WORKER_USAGE_NON_IRQ;
-	worker_init_args.flag = 0;
-	worker_init_args.priv_data = NULL;
-	worker_init_args.index = 0;
-	worker_init_args.worker_ctx_priv = &a_ctrl->worker_ctx;
-	rc = cam_worker_wrapper_init(&worker_init_args, WORKER_CLASS_NRT);
+	rc = cam_req_mgr_workq_create("cam_actuator_worker", 1, &a_ctrl->workq,
+		CRM_WORKQ_USAGE_NON_IRQ, 0, cam_actuator_process_workq);
 	if (rc < 0) {
 		CAM_ERR(CAM_ACTUATOR, "Unable to create worker");
-		goto free_and_destroy;
+		goto free_mem;
 	}
 
 	a_ctrl->bridge_intf.device_hdl = -1;
@@ -300,13 +302,36 @@ static int cam_actuator_i2c_component_bind(struct device *dev,
 	cam_record_bind_latency(drv_name, microsec);
 	of_node_put(np);
 
+	/* xiaomi add begin */
+	INIT_LIST_HEAD(&(a_ctrl->i2c_data.parklens_settings.list_head)); //xiaomi add
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.parklens_opcode),
+		ENTER_PARKLENS_WITH_POWERDOWN);
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.exit_result),
+		PARKLENS_ENTER);
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.parklens_state),
+		PARKLENS_INVALID);
+	a_ctrl->parklens_ctrl.parklens_thread = NULL;
+	/* xiaomi add end */
+	/* xiaomi add for cci debug start */
+	rc = cam_cci_dev_create_debugfs_entry(a_ctrl->device_name,
+		a_ctrl->soc_info.index, CAM_ACTUATOR_NAME,
+		&a_ctrl->io_master_info, CCI_MASTER_MAX,
+		&a_ctrl->cci_debug);
+	if (rc) {
+		CAM_WARN(CAM_ACTUATOR, "debugfs creation failed");
+		rc = 0;
+	}
+	/* xiaomi add for cci debug end */
+
+	/* xiaomi dev protection add*/
+	xm_cam_dev_init_dev_info(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_TYPE_ACTUATOR);
+	/* xiaomi dev protection add*/
+
 	return rc;
 
-free_and_destroy:
+free_mem:
 	CAM_MEM_FREE(a_ctrl->i2c_data.per_frame);
 	a_ctrl->i2c_data.per_frame = NULL;
-	mutex_destroy(&a_ctrl->actuator_park_mutex);
-	mutex_destroy(&(a_ctrl->actuator_mutex));
 unreg_subdev:
 	cam_unregister_subdev(&(a_ctrl->v4l2_dev_str));
 free_soc:
@@ -343,14 +368,20 @@ static void cam_actuator_i2c_component_unbind(struct device *dev,
 	cam_actuator_shutdown(a_ctrl);
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 	cam_unregister_subdev(&(a_ctrl->v4l2_dev_str));
-	cam_worker_wrapper_deinit(a_ctrl->worker_ctx);
+	/* xiaomi add for cci debug start */
+	cam_cci_dev_remove_debugfs_entry((void *)a_ctrl->cci_debug);
+	/* xiaomi add for cci debug end */
+
+	cam_req_mgr_workq_destroy(&(a_ctrl->workq));
 	mutex_destroy(&a_ctrl->actuator_park_mutex);
-	mutex_destroy(&(a_ctrl->actuator_mutex));
 	cam_sensor_util_release_resources(&(a_ctrl->io_master_info), &(a_ctrl->soc_info));
 
 	/*Free Allocated Mem */
 	CAM_MEM_FREE(a_ctrl->i2c_data.per_frame);
 	a_ctrl->i2c_data.per_frame = NULL;
+	/* xiaomi dev protection add*/
+	xm_cam_dev_destroy_dev_info(get_actuator_xm_cam_dev_info(a_ctrl));
+	/* xiaomi dev protection add*/
 	v4l2_set_subdevdata(&a_ctrl->v4l2_dev_str.sd, NULL);
 	CAM_MEM_FREE(a_ctrl);
 }
@@ -437,14 +468,13 @@ void cam_actuator_driver_i2c_remove(
 static int cam_actuator_platform_component_bind(struct device *dev,
 	struct device *master_dev, void *data)
 {
-	int32_t                             rc = 0;
-	int32_t                             i = 0;
-	struct cam_actuator_ctrl_t         *a_ctrl = NULL;
-	struct cam_actuator_soc_private    *soc_private = NULL;
-	struct platform_device             *pdev = to_platform_device(dev);
-	struct timespec64                   ts_start, ts_end;
-	long                                microsec = 0;
-	struct cam_worker_wrapper_init_args worker_init_args = {0};
+	int32_t                           rc = 0;
+	int32_t                           i = 0;
+	struct cam_actuator_ctrl_t       *a_ctrl = NULL;
+	struct cam_actuator_soc_private  *soc_private = NULL;
+	struct platform_device           *pdev = to_platform_device(dev);
+	struct timespec64                 ts_start, ts_end;
+	long                              microsec = 0;
 
 	CAM_GET_TIMESTAMP(ts_start);
 
@@ -496,29 +526,19 @@ static int cam_actuator_platform_component_bind(struct device *dev,
 	mutex_init(&a_ctrl->actuator_park_mutex);
 	init_completion(&a_ctrl->park_lens_complete);
 
-	/* Initialize mutex and read buf list */
-	mutex_init(&(a_ctrl->actuator_mutex));
-	INIT_LIST_HEAD(&(a_ctrl->read_buf_list));
-
 	/* Create worker for actuator park with 1 task */
-	worker_init_args.name = "cam_actuator_worker";
-	worker_init_args.num_tasks = 1;
-	worker_init_args.max_active = 0;
-	worker_init_args.in_irq = WORKER_USAGE_NON_IRQ;
-	worker_init_args.flag = 0;
-	worker_init_args.priv_data = NULL;
-	worker_init_args.index = 0;
-	worker_init_args.worker_ctx_priv = &a_ctrl->worker_ctx;
-	rc = cam_worker_wrapper_init(&worker_init_args, WORKER_CLASS_NRT);
+	rc = cam_req_mgr_workq_create("cam_actuator_worker", 1,
+			&a_ctrl->workq, CRM_WORKQ_USAGE_NON_IRQ, 0,
+			cam_actuator_process_workq);
 	if (rc < 0) {
 		CAM_ERR(CAM_ACTUATOR, "Unable to create worker");
-		goto free_and_destroy;
+		goto free_mem;
 	}
 
 	rc = cam_actuator_parse_dt(a_ctrl, &(pdev->dev));
 	if (rc < 0) {
 		CAM_ERR(CAM_ACTUATOR, "Paring actuator dt failed rc %d", rc);
-		goto destroy_worker;
+		goto destroy_workq;
 	}
 
 	/* Fill platform device id*/
@@ -526,7 +546,7 @@ static int cam_actuator_platform_component_bind(struct device *dev,
 
 	rc = cam_actuator_init_subdev(a_ctrl);
 	if (rc)
-		goto destroy_worker;
+		goto destroy_workq;
 
 	a_ctrl->bridge_intf.device_hdl = -1;
 	a_ctrl->bridge_intf.link_hdl = -1;
@@ -545,20 +565,43 @@ static int cam_actuator_platform_component_bind(struct device *dev,
 	CAM_DBG(CAM_ACTUATOR, "Component bound successfully %d",
 		a_ctrl->soc_info.index);
 
+	/* xiaomi add begin */
+	INIT_LIST_HEAD(&(a_ctrl->i2c_data.parklens_settings.list_head));
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.parklens_opcode),
+		ENTER_PARKLENS_WITH_POWERDOWN);
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.exit_result),
+		PARKLENS_ENTER);
+	parklens_atomic_set(&(a_ctrl->parklens_ctrl.parklens_state),
+		PARKLENS_INVALID);
+	a_ctrl->parklens_ctrl.parklens_thread = NULL;
+	/* xiaomi add end */
+
 	g_i3c_actuator_data[a_ctrl->soc_info.index].a_ctrl = a_ctrl;
 	init_completion(&g_i3c_actuator_data[a_ctrl->soc_info.index].probe_complete);
 	CAM_GET_TIMESTAMP(ts_end);
 	CAM_GET_TIMESTAMP_DIFF_IN_MICRO(ts_start, ts_end, microsec);
 	cam_record_bind_latency(pdev->name, microsec);
+	/* xiaomi add for cci debug start*/
+	rc = cam_cci_dev_create_debugfs_entry(a_ctrl->device_name,
+		a_ctrl->soc_info.index, CAM_ACTUATOR_NAME,
+		&a_ctrl->io_master_info, a_ctrl->io_master_info.cci_client->cci_i2c_master,
+		&a_ctrl->cci_debug);
+	if (rc) {
+		CAM_WARN(CAM_ACTUATOR, "debugfs creation failed");
+		rc = 0;
+	}
+	/* xiaomi add for cci debug end */
+
+	/* xiaomi dev protection add*/
+	xm_cam_dev_init_dev_info(get_actuator_xm_cam_dev_info(a_ctrl), XM_CAM_DEV_TYPE_ACTUATOR);
+	/* xiaomi dev protection add*/
 
 	return rc;
 
-destroy_worker:
-	cam_worker_wrapper_deinit(a_ctrl->worker_ctx);
-free_and_destroy:
+destroy_workq:
+	cam_req_mgr_workq_destroy(&(a_ctrl->workq));
+free_mem:
 	CAM_MEM_FREE(a_ctrl->i2c_data.per_frame);
-	mutex_destroy(&a_ctrl->actuator_park_mutex);
-	mutex_destroy(&(a_ctrl->actuator_mutex));
 free_soc:
 	CAM_MEM_FREE(soc_private);
 free_cci_client:
@@ -584,9 +627,18 @@ static void cam_actuator_platform_component_unbind(struct device *dev,
 	cam_actuator_shutdown(a_ctrl);
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 	cam_unregister_subdev(&(a_ctrl->v4l2_dev_str));
-	cam_worker_wrapper_deinit(a_ctrl->worker_ctx);
+	/* xiaomi add for cci debug */
+	if (a_ctrl->io_master_info.master_type == CCI_MASTER) {
+		cam_cci_dev_remove_debugfs_entry((void *)a_ctrl->cci_debug);
+	}
+	/* xiaomi add for cci debug */
+
+	/* xiaomi dev protection add*/
+	xm_cam_dev_destroy_dev_info(get_actuator_xm_cam_dev_info(a_ctrl));
+	/* xiaomi dev protection add*/
+
+	cam_req_mgr_workq_destroy(&(a_ctrl->workq));
 	mutex_destroy(&a_ctrl->actuator_park_mutex);
-	mutex_destroy(&(a_ctrl->actuator_mutex));
 	cam_sensor_util_release_resources(&(a_ctrl->io_master_info), &(a_ctrl->soc_info));
 	CAM_MEM_FREE(a_ctrl->i2c_data.per_frame);
 	a_ctrl->i2c_data.per_frame = NULL;

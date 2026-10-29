@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/ratelimit.h>
@@ -14,6 +14,7 @@
 #include "cam_hw_intf.h"
 #include "cam_ife_hw_mgr.h"
 #include "cam_sfe_hw_intf.h"
+#include "cam_tasklet_util.h"
 #include "cam_sfe_bus.h"
 #include "cam_sfe_bus_rd.h"
 #include "cam_sfe_core.h"
@@ -132,7 +133,7 @@ struct cam_sfe_bus_rd_priv {
 	struct cam_sfe_bus_rd_hw_info      *bus_rd_hw_info;
 	int                                 irq_handle;
 	int                                 error_irq_handle;
-	void                               *worker_ctx;
+	void                               *tasklet_info;
 	uint32_t                            top_irq_shift;
 	uint32_t                            latency_buf_allocation;
 	uint32_t                            sys_cache_default_cfg;
@@ -331,7 +332,7 @@ static int cam_sfe_bus_rd_put_evt_payload(
 	struct cam_sfe_bus_rd_common_data       *common_data,
 	struct cam_sfe_bus_rd_irq_evt_payload  **evt_payload)
 {
-	unsigned long flags = 0;
+	unsigned long flags;
 
 	if (!common_data) {
 		CAM_ERR(CAM_SFE, "Invalid param common_data NULL");
@@ -466,7 +467,7 @@ static void cam_sfe_bus_rd_get_constraint_error(struct cam_sfe_bus_rd_priv *bus_
 
 static int cam_sfe_bus_acquire_rm(
 	struct cam_sfe_bus_rd_priv             *bus_rd_priv,
-	void                                   *worker_ctx,
+	void                                   *tasklet,
 	void                                   *ctx,
 	enum cam_sfe_bus_rd_type                sfe_bus_rd_res_id,
 	enum cam_sfe_bus_plane_type             plane,
@@ -494,7 +495,7 @@ static int cam_sfe_bus_acquire_rm(
 		return -EALREADY;
 	}
 	rm_res_local->res_state = CAM_ISP_RESOURCE_STATE_RESERVED;
-	rm_res_local->worker_ctx = worker_ctx;
+	rm_res_local->tasklet_info = tasklet;
 
 	rsrc_data = rm_res_local->res_priv;
 	rsrc_data->ctx = ctx;
@@ -537,7 +538,7 @@ static int cam_sfe_bus_release_rm(void          *bus_priv,
 	rsrc_data->enable_caching =  false;
 	rsrc_data->offset = 0;
 
-	rm_res->worker_ctx = NULL;
+	rm_res->tasklet_info = NULL;
 	rm_res->res_state = CAM_ISP_RESOURCE_STATE_AVAILABLE;
 
 	CAM_DBG(CAM_SFE, "SFE:%d RM:%d released",
@@ -917,6 +918,7 @@ static int cam_sfe_bus_subscribe_error_irq(
 		cam_sfe_bus_rd_handle_irq,
 		NULL,
 		NULL,
+		NULL,
 		CAM_IRQ_EVT_GROUP_0);
 
 	if (bus_priv->irq_handle < 1) {
@@ -929,7 +931,7 @@ static int cam_sfe_bus_subscribe_error_irq(
 	cam_irq_controller_register_dependent(bus_priv->common_data.sfe_irq_controller,
 		bus_priv->common_data.bus_irq_controller, sfe_top_irq_mask);
 
-	if (bus_priv->worker_ctx != NULL) {
+	if (bus_priv->tasklet_info != NULL) {
 		bus_rd_err_irq_mask[0] = bus_priv->common_data.irq_err_mask;
 
 		bus_priv->error_irq_handle = cam_irq_controller_subscribe_irq(
@@ -939,7 +941,8 @@ static int cam_sfe_bus_subscribe_error_irq(
 			bus_priv,
 			cam_sfe_bus_rd_handle_err_irq_top_half,
 			cam_sfe_bus_rd_handle_err_irq_bottom_half,
-			bus_priv->worker_ctx,
+			bus_priv->tasklet_info,
+			&tasklet_bh_api,
 			CAM_IRQ_EVT_GROUP_0);
 
 		if (bus_priv->error_irq_handle < 1) {
@@ -1015,8 +1018,8 @@ static int cam_sfe_bus_acquire_bus_rd(void *bus_priv, void *acquire_args,
 		rsrc_data->common_data->core_index, acq_args->rsrc_type, rsrc_node->res_id);
 
 	rsrc_data->num_rm = num_rm;
-	rsrc_node->worker_ctx = acq_args->worker_ctx;
-	bus_rd_priv->worker_ctx = acq_args->worker_ctx;
+	rsrc_node->tasklet_info = acq_args->tasklet;
+	bus_rd_priv->tasklet_info = acq_args->tasklet;
 	rsrc_node->cdm_ops = bus_rd_acquire_args->cdm_ops;
 	rsrc_data->cdm_util_ops = bus_rd_acquire_args->cdm_ops;
 	rsrc_data->common_data->event_cb = acq_args->event_cb;
@@ -1042,7 +1045,7 @@ static int cam_sfe_bus_acquire_bus_rd(void *bus_priv, void *acquire_args,
 
 	for (i = 0; i < num_rm; i++) {
 		rc = cam_sfe_bus_acquire_rm(bus_rd_priv,
-			acq_args->worker_ctx,
+			acq_args->tasklet,
 			acq_args->priv,
 			bus_rd_res_id,
 			i,
@@ -1097,7 +1100,7 @@ static int cam_sfe_bus_release_bus_rd(void *bus_priv, void *release_args,
 		cam_sfe_bus_release_rm(bus_priv, rsrc_data->rm_res[i]);
 	rsrc_data->num_rm = 0;
 
-	sfe_bus_rd->worker_ctx = NULL;
+	sfe_bus_rd->tasklet_info = NULL;
 	sfe_bus_rd->cdm_ops = NULL;
 	rsrc_data->cdm_util_ops = NULL;
 	rsrc_data->secure_mode = 0;
@@ -1182,7 +1185,8 @@ static int cam_sfe_bus_start_bus_rd(
 			sfe_bus_rd,
 			cam_sfe_bus_rd_out_done_top_half,
 			cam_sfe_bus_rd_out_done_bottom_half,
-			sfe_bus_rd->worker_ctx,
+			sfe_bus_rd->tasklet_info,
+			&tasklet_bh_api,
 			CAM_IRQ_EVT_GROUP_0);
 
 		if (sfe_bus_rd->irq_handle < 1) {
@@ -1769,7 +1773,6 @@ static int cam_sfe_bus_rd_get_res_for_mid(
 	struct cam_isp_hw_get_cmd_update       *cmd_update = cmd_args;
 	struct cam_isp_hw_get_res_for_mid      *get_res = NULL;
 	int i, j;
-	int max_num_rd_resc;
 
 	get_res = (struct cam_isp_hw_get_res_for_mid *)cmd_update->data;
 	if (!get_res) {
@@ -1779,12 +1782,7 @@ static int cam_sfe_bus_rd_get_res_for_mid(
 	}
 
 	hw_info =  bus_priv->bus_rd_hw_info;
-
-	max_num_rd_resc = (bus_priv->num_bus_rd_resc > CAM_SFE_BUS_RD_MAX)
-			  ? CAM_SFE_BUS_RD_MAX
-			  : bus_priv->num_bus_rd_resc;
-
-	for (i = 0; i < max_num_rd_resc; i++) {
+	for (i = 0; i < bus_priv->num_bus_rd_resc; i++) {
 		for (j = 0; j < CAM_SFE_BUS_MAX_MID_PER_PORT; j++) {
 			if (hw_info->sfe_bus_rd_info[i].mid[j] == get_res->mid)
 				goto end;
@@ -2217,7 +2215,7 @@ int cam_sfe_bus_rd_deinit(
 	struct cam_sfe_bus                  **sfe_bus)
 {
 	int i, rc = 0;
-	unsigned long flags = 0;
+	unsigned long flags;
 	struct cam_sfe_bus_rd_priv    *bus_priv = NULL;
 	struct cam_sfe_bus            *sfe_bus_local;
 

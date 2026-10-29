@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_ISP_CONTEXT_H_
@@ -15,6 +15,7 @@
 
 #include "cam_context.h"
 #include "cam_isp_hw_mgr_intf.h"
+#include "cam_req_mgr_workq.h"
 
 #define CAM_IFE_QTIMER_MUL_FACTOR        10000
 #define CAM_IFE_QTIMER_DIV_FACTOR        192
@@ -45,9 +46,6 @@
 
 /* Number of words for dumping isp context events*/
 #define CAM_ISP_CTX_DUMP_EVENT_NUM_WORDS  3
-
-/* Number of words for dumping state monitor */
-#define CAM_ISP_CTX_DUMP_STATE_MONITOR_NUM_WORDS  4
 
 /* Number of words for dumping request info*/
 #define CAM_ISP_CTX_DUMP_REQUEST_NUM_WORDS  2
@@ -398,7 +396,7 @@ struct cam_isp_fcg_prediction_tracker {
  * @isp_device_type:           ISP device type
  * @rxd_epoch:                 Indicate whether epoch has been received. Used to
  *                             decide whether to apply request in offline ctx
- * @worker_ctx:                Worker thread for offline ife
+ * @workq:                     Worker thread for offline ife
  * @trigger_id:                ID provided by CRM for each ctx on the link
  * @last_bufdone_err_apply_req_id:  last bufdone error apply request id
  * @v4l2_event_sub_ids         contains individual bits representing subscribed v4l2 ids
@@ -440,8 +438,6 @@ struct cam_isp_fcg_prediction_tracker {
  * @init_pending_req_cnt:      Count of the init pending reqs received before stream on
  * @max_delay:                 The max pipeline delay
  * @last_sent_sof_timestamp:   SOF timestamp of the last sent SOF timestamp frame
- * @isp_mutex:                 isp context mutex to protect req lists
- * @ife_hw_mgr_worker_type:    IFE HW manager worker type
  *
  */
 struct cam_isp_context {
@@ -480,7 +476,7 @@ struct cam_isp_context {
 	unsigned int                          init_timestamp;
 	uint32_t                              isp_device_type;
 	atomic_t                              rxd_epoch;
-	void                                 *worker_ctx;
+	struct cam_req_mgr_core_workq        *workq;
 	int32_t                               trigger_id;
 	int64_t                               last_bufdone_err_apply_req_id;
 	uint32_t                              v4l2_event_sub_ids;
@@ -516,8 +512,6 @@ struct cam_isp_context {
 	uint32_t                              init_pending_req_cnt;
 	enum cam_pipeline_delay               max_delay;
 	uint64_t                              last_sent_sof_timestamp;
-	struct mutex                          isp_mutex;
-	enum cam_worker_wrapper_type          ife_hw_mgr_worker_type;
 };
 
 /**
@@ -684,5 +678,31 @@ int cam_isp_context_init(struct cam_isp_context *ctx,
  *
  */
 int cam_isp_context_deinit(struct cam_isp_context *ctx);
+
+
+/*xiaomi added detect framerate begin*/
+/**
+ * cam_isp_detect_framerate()
+ *
+ * @brief                function to detect framerate - xiaomi added
+ *
+ * @ctx:                 ISP context
+ * @interval:            frame interval num to calculate framerate
+ *
+ */
+void cam_isp_detect_framerate(struct cam_isp_context *ctx,
+	uint interval);
+
+/**
+ * @brief                 function to get frame batchsize of HFR - xiaomi add
+ *
+ * @ctx:                  ISP context obj to be detected
+ * @cpkt:                 camera packet
+ *
+ */
+void cam_isp_get_frame_batchsize(struct cam_context *ctx,
+	struct cam_packet *cpkt);
+/*xiaomi added detect framerate end*/
+
 
 #endif  /* __CAM_ISP_CONTEXT_H__ */

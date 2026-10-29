@@ -290,7 +290,6 @@ enum cam_isp_hw_cmd_type {
 	CAM_ISP_HW_CMD_DYNAMIC_CLOCK_UPDATE,
 	CAM_ISP_HW_CMD_EXP_INFO_UPDATE,
 	CAM_ISP_HW_CMD_READ_RST_PERF_CNTRS,
-	CAM_ISP_HW_CMD_TRIGGER_ERR_NO_FAULT_STREAM,
 	CAM_ISP_HW_CMD_MAX,
 };
 
@@ -308,7 +307,7 @@ enum cam_isp_hw_cmd_type {
  * @res_priv:                     Private data of the resource
  * @list:                         list_head node for this resource
  * @cdm_ops:                      CDM operation functions
- * @worker_ctx:                   Worker structure that will be used to
+ * @tasklet_info:                 Tasklet structure that will be used to
  *                                schedule IRQ events related to this resource
  * @irq_handle:                   handle returned on subscribing for IRQ event
  * @init:                         function pointer to init the HW resource
@@ -331,7 +330,7 @@ struct cam_isp_resource_node {
 	void                          *res_priv;
 	struct list_head               list;
 	void                          *cdm_ops;
-	void                          *worker_ctx;
+	void                          *tasklet_info;
 	int                            irq_handle;
 
 	int (*init)(struct cam_isp_resource_node *rsrc_node,
@@ -403,25 +402,21 @@ struct cam_isp_hw_bufdone_event_info {
  *
  * @Brief:             Structure to pass event details to hw mgr
  *
- * @res_type:                     Type of IFE resource
- * @is_secondary_evt:             Indicates if event was requested by hw mgr
- * @trigger_no_fault_stream_err:  Error type eligible to trigger error on non-faulting streams
- * @res_id:                       Unique resource ID
- * @hw_idx:                       IFE hw index
- * @reg_idx:                      Index of the status register
- * @reg_val:                      Any critical register value captured during irq handling
- * @hw_type:                      Hw Type sending the event
- * @in_core_idx:                  Input core type if CSID error evt
- * @event_data:                   Any additional data specific to this event
+ * @res_type:          Type of IFE resource
+ * @is_secondary_evt:  Indicates if event was requested by hw mgr
+ * @res_id:            Unique resource ID
+ * @hw_idx:            IFE hw index
+ * @reg_val:           Any critical register value captured during irq handling
+ * @hw_type:           Hw Type sending the event
+ * @in_core_idx:       Input core type if CSID error evt
+ * @event_data:        Any additional data specific to this event
  *
  */
 struct cam_isp_hw_event_info {
 	enum cam_isp_resource_type     res_type;
 	bool                           is_secondary_evt;
-	bool                           trigger_no_fault_stream_err;
 	uint32_t                       res_id;
 	uint32_t                       hw_idx;
-	uint32_t                       reg_idx;
 	uint32_t                       reg_val;
 	uint32_t                       hw_type;
 	uint32_t                       in_core_idx;
@@ -700,8 +695,6 @@ struct cam_isp_hw_out_port_data {
  * @support_buf_done_with_framehdr:  Indicate whether HW supports using frameheader
  *                                  for buf done verification
  * @out_port_data:          Data specific to output ports for validating acquire
- * @no_fault_stream_err_en:  Indicates if an error on a stream triggers error on
- *                           non-faulting streams
  *
  */
 struct cam_isp_hw_cap {
@@ -717,7 +710,6 @@ struct cam_isp_hw_cap {
 	struct cam_isp_hw_regiter_dump_data  skip_regdump_data;
 	bool                                 support_buf_done_with_framehdr;
 	struct cam_isp_hw_out_port_data      out_port_data;
-	bool                                 no_fault_stream_err_en;
 };
 
 /**
@@ -783,21 +775,6 @@ struct cam_isp_irq_inject_param {
 	uint64_t req_id;
 	bool     is_valid;
 	char    *line_buf;
-};
-
-/*
- * struct cam_isp_hw_trigger_err_info:
- *
- * @Brief:                  ISP hw trigger error info for non-faulting streams
- *
- * @res_id:                 Resource ID
- * @irq_reg_idx:            Index of the status register in the irq controller
- * @irq_mask:               Error IRQ mask to be applied
- */
-struct cam_isp_hw_trigger_err_info {
-	int                            res_id;
-	uint32_t                       irq_reg_idx;
-	uint32_t                       irq_mask;
 };
 
 #endif /* _CAM_ISP_HW_H_ */

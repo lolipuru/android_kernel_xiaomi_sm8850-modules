@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #ifndef _CAM_REQ_MGR_CORE_H_
 #define _CAM_REQ_MGR_CORE_H_
@@ -9,8 +9,8 @@
 #include <linux/spinlock_types.h>
 #include "cam_req_mgr_interface.h"
 #include "cam_req_mgr_core_defs.h"
+#include "cam_req_mgr_workq.h"
 #include "cam_req_mgr_timer.h"
-#include "cam_worker_wrapper_api.h"
 
 #define CAM_REQ_MGR_MAX_LINKED_DEV     16
 #define MAX_REQ_SLOTS                  48
@@ -28,7 +28,11 @@
 #define FORCE_ENABLE_RECOVERY   1
 #define AUTO_RECOVERY           0
 
-#define CRM_WORKER_NUM_TASKS 60
+#ifdef __XIAOMI_CAMERA__
+#define CRM_WORKQ_NUM_TASKS 150
+#else
+#define CRM_WORKQ_NUM_TASKS 60
+#endif
 
 #define MAX_SYNC_COUNT 65535
 
@@ -44,7 +48,8 @@
 
 #define MAXIMUM_LINKS_PER_SESSION  4
 
-#define MAXIMUM_RETRY_ATTEMPTS 3
+/* adjust by xiaomi */
+#define MAXIMUM_RETRY_ATTEMPTS 6
 
 #define VERSION_1  1
 #define VERSION_2  2
@@ -80,22 +85,22 @@ enum crm_mismatched_frame_mode {
 };
 
 /**
- * enum crm_worker_task_type
+ * enum crm_workq_task_type
  * @codes: to identify which type of task is present
  */
-enum crm_worker_task_type {
-	CRM_WORKER_TASK_GET_DEV_INFO,
-	CRM_WORKER_TASK_SETUP_LINK,
-	CRM_WORKER_TASK_DEV_ADD_REQ,
-	CRM_WORKER_TASK_APPLY_REQ,
-	CRM_WORKER_TASK_NOTIFY_SOF,
-	CRM_WORKER_TASK_NOTIFY_EOF,
-	CRM_WORKER_TASK_NOTIFY_ERR,
-	CRM_WORKER_TASK_NOTIFY_FREEZE,
-	CRM_WORKER_TASK_SCHED_REQ,
-	CRM_WORKER_TASK_FLUSH_REQ,
-	CRM_WORKER_TASK_TRIGGER_SYNCED_RESUME,
-	CRM_WORKER_TASK_INVALID,
+enum crm_workq_task_type {
+	CRM_WORKQ_TASK_GET_DEV_INFO,
+	CRM_WORKQ_TASK_SETUP_LINK,
+	CRM_WORKQ_TASK_DEV_ADD_REQ,
+	CRM_WORKQ_TASK_APPLY_REQ,
+	CRM_WORKQ_TASK_NOTIFY_SOF,
+	CRM_WORKQ_TASK_NOTIFY_EOF,
+	CRM_WORKQ_TASK_NOTIFY_ERR,
+	CRM_WORKQ_TASK_NOTIFY_FREEZE,
+	CRM_WORKQ_TASK_SCHED_REQ,
+	CRM_WORKQ_TASK_FLUSH_REQ,
+	CRM_WORKQ_TASK_TRIGGER_SYNCED_RESUME,
+	CRM_WORKQ_TASK_INVALID,
 };
 
 /**
@@ -111,7 +116,7 @@ enum crm_worker_task_type {
  * -
  */
 struct crm_task_payload {
-	enum crm_worker_task_type type;
+	enum crm_workq_task_type type;
 	union {
 		struct cam_req_mgr_sched_request_v2     sched_req;
 		struct cam_req_mgr_flush_info           flush_info;
@@ -153,6 +158,7 @@ enum crm_slot_status {
 	CRM_SLOT_STATUS_REQ_PENDING,
 	CRM_SLOT_STATUS_REQ_READY,
 	CRM_SLOT_STATUS_REQ_APPLIED,
+	CRM_SLOT_STATUS_REQ_DONE,
 	CRM_SLOT_STATUS_INVALID,
 };
 
@@ -449,8 +455,7 @@ struct cam_req_mgr_connected_device {
  * @min_delay                   : Min of pipeline delay of all connected devs
  * @max_mswitch_delay           : Max of modeswitch delay of all connected devs
  * @min_mswitch_delay           : Min of modeswitch delay of all connected devs
- * @worker_ctx                  : Pointer to handle worker related jobs
- * @task_data                   : Pointer to an array of task data to be processed by worker cb
+ * @workq                       : Pointer to handle workq related jobs
  * @pd_mask                     : each set bit indicates the device with pd equal to
  *                                bit position is available.
  * - List of connected devices
@@ -460,7 +465,7 @@ struct cam_req_mgr_connected_device {
  * - Timer
  * @watchdog                    : watchdog timer to recover from sof freeze
  * - Link private data
- * @worker_comp                 : conditional variable to block user thread for worker
+ * @workq_comp                  : conditional variable to block user thread for workq
  *                                to finish schedule request processing
  * @state                       : link state machine
  * @parent                      : pvt data - link's parent is session
@@ -495,7 +500,7 @@ struct cam_req_mgr_connected_device {
  * @skip_init_frame             : skip initial frames crm_wd_timer validation in the
  *                                case of long exposure use case
  * @last_sof_trigger_jiffies    : Record the jiffies of last sof trigger jiffies
- * @work_congestion             : Indicates if work congestion is detected or not
+ * @wq_congestion               : Indicates if WQ congestion is detected or not
  * @try_for_internal_recovery   : If the link stalls try for RT internal recovery
  * @properties_mask             : Indicates if current link enables some special properties
  * @cont_empty_slots            : Continuous empty slots
@@ -512,13 +517,12 @@ struct cam_req_mgr_core_link {
 	enum cam_pipeline_delay              min_delay;
 	enum cam_modeswitch_delay            max_mswitch_delay;
 	enum cam_modeswitch_delay            min_mswitch_delay;
-	void                                *worker_ctx;
-	void                                *task_data;
+	struct cam_req_mgr_core_workq       *workq;
 	int32_t                              pd_mask;
 	struct cam_req_mgr_connected_device *l_dev;
 	struct cam_req_mgr_req_data          req;
 	struct cam_req_mgr_timer            *watchdog;
-	struct completion                    worker_comp;
+	struct completion                    workq_comp;
 	enum cam_req_mgr_link_state          state;
 	void                                *parent;
 	struct mutex                         lock;
@@ -544,7 +548,7 @@ struct cam_req_mgr_core_link {
 	atomic_t                             eof_event_cnt;
 	bool                                 skip_init_frame;
 	uint64_t                             last_sof_trigger_jiffies;
-	bool                                 work_congestion;
+	bool                                 wq_congestion;
 	bool                                 try_for_internal_recovery;
 	bool                                 is_sending_req;
 	uint32_t                             properties_mask;
@@ -641,7 +645,7 @@ struct cam_req_mgr_req_data_mini_dump {
 
 /**
  * struct cam_req_mgr_core_link_mini_dump
- * @worker_dump_info     : Worker information
+ * @workq                : Work q information
  * @req                  : req data holder.
  * @initial_sync_req     : The initial req which is required to sync with the
  * @prev_sof_timestamp   : Previous SOF timestamp value
@@ -666,10 +670,10 @@ struct cam_req_mgr_req_data_mini_dump {
  *                         master-slave sync
  * @in_m_sync_mode       : M-sync  mode flag
  * @sync_link_sof_skip   : flag determines if a pkt is not available
- * @work_congestion      : Indicates if work congestion is detected or not
+ * @wq_congestion        : Indicates if WQ congestion is detected or not
  */
 struct cam_req_mgr_core_link_mini_dump {
-	struct cam_worker_wrapper_mini_dump      worker_dump_info;
+	struct cam_req_mgr_core_workq_mini_dump  workq;
 	struct cam_req_mgr_req_data_mini_dump    req;
 	int64_t                   initial_sync_req;
 	uint32_t                  last_flush_id;
@@ -690,7 +694,7 @@ struct cam_req_mgr_core_link_mini_dump {
 	bool                       initial_skip;
 	bool                       in_msync_mode;
 	bool                       sync_link_sof_skip;
-	bool                       work_congestion;
+	bool                       wq_congestion;
 };
 
 /**

@@ -238,7 +238,7 @@ struct cam_csid_secondary_evt_config {
  * @sfe_inline_shdr:       Flag to indicate if sfe is inline shdr
  * @is_offline :           Flag to indicate offline
  * @need_top_cfg:          Flag to indicate if top cfg is needed
- * @worker_ctx:            Worker to schedule bottom halves
+ * @tasklet:               Tasklet to schedule bottom halves
  * @buf_done_controller:   IRQ controller for buf done for version 680 hw
  * @cdm_ops:               CDM Ops
  * @event_cb:              Callback function to hw mgr in case of hw events
@@ -266,7 +266,7 @@ struct cam_csid_hw_reserve_resource_args {
 	bool                                      sfe_inline_shdr;
 	bool                                      is_offline;
 	bool                                      need_top_cfg;
-	void                                     *worker_ctx;
+	void                                     *tasklet;
 	void                                     *buf_done_controller;
 	void                                     *mc_comp_buf_done_controller;
 	void                                     *cdm_ops;
@@ -547,8 +547,6 @@ struct cam_ife_csid_discard_frame_cfg_update {
 struct cam_ife_csid_ts_reg_addr {
 	void __iomem                     *curr0_ts_addr;
 	void __iomem                     *curr1_ts_addr;
-	void __iomem                     *prev0_ts_addr;
-	void __iomem                     *prev1_ts_addr;
 	uint32_t                          res_id;
 	bool                              get_addr;
 };

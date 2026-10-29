@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2019, 2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_SENSOR_DEV_H_
@@ -25,6 +25,9 @@
 #include <cam_sensor_io.h>
 #include "cam_debug_util.h"
 #include "cam_context.h"
+/* xiaomi add for cci debug */
+#include "cam_cci_debug_util.h"
+/* xiaomi add for cci debug */
 
 #define NUM_MASTERS 2
 #define NUM_QUEUES 2
@@ -120,6 +123,8 @@ struct cam_sensor_dev_res_info {
  * @last_applied_done_timestamp : Last applied done timestamp value
  * @hw_no_ops                   : To determine whether HW operations need to be disabled
  * @read_buf_list               : Sensor register read cmd buffer handle list
+ * @read_buf_lock               : Sensor register read cmd buffer mutex
+ * @cci_debug: Sensor debugfs info and entry
  */
 struct cam_sensor_ctrl_t {
 	char                           device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
@@ -161,7 +166,17 @@ struct cam_sensor_ctrl_t {
 	int32_t                        req_table_wr_idx;
 	uint64_t                       req_table[MAX_PER_FRAME_ARRAY];
 	struct list_head               read_buf_list;
+	struct mutex                   read_buf_lock;
+	/* xiaomi add for cci debug */
+	void                          *cci_debug;
+	int64_t                       current_apply_frame_id;
+	/* xiaomi add for cci debug */
 };
+
+/* xiaomi add for cam_io_dev use begin */
+struct i2c_client *cam_get_i2c_client(const char* i2c_name);
+struct camera_io_master *get_camera_io_master(uint32_t slot_id);
+/* xiaomi add for cam_io_dev use end */
 
 /**
  * @brief : API to register SENSOR hw to platform framework.

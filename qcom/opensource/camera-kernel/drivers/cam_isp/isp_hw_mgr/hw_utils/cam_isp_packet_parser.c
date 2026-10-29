@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <media/cam_defs.h>
@@ -196,17 +196,10 @@ static int cam_isp_update_dual_config(
 		goto put_ref;
 	}
 
-	size_t stripe_total;
-
 	dual_config = (struct cam_isp_dual_config *)cpu_addr_local;
-	if (packet_size < offsetof(struct cam_isp_dual_config, stripes) ||
-		check_mul_overflow(
-			(size_t)dual_config->num_ports,
-			(size_t)(CAM_ISP_HW_SPLIT_MAX * CAM_PACKET_MAX_PLANES *
-			sizeof(struct cam_isp_dual_stripe_config)),
-			&stripe_total) ||
-		(stripe_total >
-			(packet_size - offsetof(struct cam_isp_dual_config, stripes)))) {
+	if ((dual_config->num_ports *
+		sizeof(struct cam_isp_dual_stripe_config)) >
+		(remain_len - offsetof(struct cam_isp_dual_config, stripes))) {
 		CAM_ERR(CAM_ISP, "not enough buffer for all the dual configs");
 		rc = -EINVAL;
 		goto end;
@@ -230,16 +223,6 @@ static int cam_isp_update_dual_config(
 			if (dual_config->stripes_flex[ports_plane_idx].port_id == 0)
 				continue;
 			port_id = dual_config->stripes_flex[ports_plane_idx].port_id;
-
-			if (port_id < out_base || port_id >= out_max ||
-				out_map[port_id & 0xFF] == 0xFF) {
-				CAM_ERR(CAM_ISP,
-					"Invalid port_id %u for isp out resource i %d num_out_res %d",
-					port_id, i, dual_config->num_ports);
-				rc = -EINVAL;
-				goto end;
-			}
-
 			hw_mgr_res = &res_list_isp_out[out_map[port_id & 0xFF]];
 			if (!hw_mgr_res) {
 				CAM_ERR(CAM_ISP,
@@ -1258,11 +1241,6 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 	major_version = io_info->major_version;
 
 	if (major_version == 3) {
-		if (max_out_res == 0) {
-			CAM_ERR(CAM_ISP, "Invalid max_out_res: 0");
-			return -EINVAL;
-		}
-
 		mc_cfg = vzalloc(sizeof(uint64_t) * CAM_ISP_MULTI_CTXT_MAX * (max_out_res));
 		if (!mc_cfg) {
 			CAM_ERR(CAM_ISP, "Memory allocation failed for MC cases");
@@ -1281,21 +1259,11 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 			}
 
 			ctxt_id = ffs(io_cfg[i].flag) - 1;
-			if (ctxt_id < 0 || ctxt_id >= CAM_ISP_MULTI_CTXT_MAX) {
+			if (ctxt_id < 0) {
 				CAM_ERR(CAM_ISP,
-						"Invalid ctxt_id %d (valid: 0-%d) req_id %llu resource_type:%d",
-						ctxt_id, CAM_ISP_MULTI_CTXT_MAX - 1,
-						io_info->prepare->packet->header.request_id,
-						io_cfg[i].resource_type);
-				rc = -EINVAL;
-				goto err;
-			}
-
-			/* Validate array bounds before access */
-			if (num_ports[ctxt_id] >= max_out_res) {
-				CAM_ERR(CAM_ISP,
-						"Port count %u exceeds max_out_res %u for ctxt_id %d",
-						num_ports[ctxt_id], max_out_res, ctxt_id);
+					"Invalid ctxt_id %d req_id %llu resource_type:%d",
+					ctxt_id, io_info->prepare->packet->header.request_id,
+					io_cfg[i].resource_type);
 				rc = -EINVAL;
 				goto err;
 			}
@@ -1364,9 +1332,7 @@ int cam_isp_add_io_buffers(struct cam_isp_io_buf_info   *io_info)
 
 	return rc;
 err:
-	if (mc_cfg)
-		vfree(mc_cfg);
-
+	vfree(mc_cfg);
 	return rc;
 }
 

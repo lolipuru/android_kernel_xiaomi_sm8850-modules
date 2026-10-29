@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -18,15 +18,15 @@
 #include "cam_common_util.h"
 #include "cam_compat.h"
 #include "camera_main.h"
+#include "cam_req_mgr_workq.h"
 #include "cam_mem_mgr_api.h"
 #include "cam_req_mgr_dev.h"
-#include "cam_worker_wrapper_api.h"
 
 struct sync_device *sync_dev;
 
 /*
  * Flag to determine whether to enqueue cb of a
- * signaled fence onto the worker or invoke it
+ * signaled fence onto the workq or invoke it
  * directly in the same context
  */
 static bool trigger_cb_without_switch;
@@ -114,8 +114,7 @@ static int cam_sync_create_util(
 
 		/* Association refcnt for non-import cases */
 		if (dma_sync_create_info->sync_created_with_dma) {
-			rc = cam_dma_fence_get_put_ref(true,
-				row->dma_fence_info.dma_fence_row_idx, NULL);
+			rc = cam_dma_fence_get_put_ref(true, row->dma_fence_info.dma_fence_row_idx);
 			if (rc)
 				CAM_ERR(CAM_SYNC,
 					"Failed to getref on dma fence idx: %u fd: %d sync_obj: %d rc: %d",
@@ -147,7 +146,6 @@ int cam_sync_register_callback(sync_callback cb_func,
 {
 	struct sync_callback_info *sync_cb;
 	struct sync_table_row *row = NULL;
-	struct cam_worker_wrapper_taskdata_args task;
 	int status = 0, rc = 0;
 
 	if ((sync_obj >= CAM_SYNC_MAX_OBJS) || (sync_obj <= 0) || (!cb_func))
@@ -192,39 +190,25 @@ int cam_sync_register_callback(sync_callback cb_func,
 			sync_cb->callback_func = cb_func;
 			sync_cb->cb_data = userdata;
 			sync_cb->sync_obj = sync_obj;
+			INIT_WORK(&sync_cb->cb_dispatch_work,
+				cam_sync_util_cb_dispatch);
 			sync_cb->status = row->state;
 			CAM_DBG(CAM_SYNC, "Enqueue callback for sync object:%s[%d]",
 				row->name,
 				sync_cb->sync_obj);
-			sync_cb->worker_scheduled_ts = ktime_get_boottime();
-
-			rc = cam_worker_wrapper_get(sync_dev->worker_ctx, &task);
-			if (rc) {
-				CAM_ERR(CAM_SYNC,
-					"Failed to get worker task for sync object:%s[%d]",
-					row->name,
-					sync_cb->sync_obj);
-				spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
-				return -ENOMEM;
-			}
-
-			task.task_priority = WORKER_TASK_PRIORITY_0;
-			rc = cam_worker_wrapper_enqueue(sync_dev->worker_ctx, &task,
-				sync_cb, NULL, cam_sync_util_cb_dispatch);
-			if (rc)
-				CAM_ERR(CAM_SYNC,
-					"Failed to enqueue tassk for sync object:%s[%d]",
-					row->name,
-					sync_cb->sync_obj);
+			sync_cb->workq_scheduled_ts = ktime_get_boottime();
+			queue_work(sync_dev->work_queue,
+				&sync_cb->cb_dispatch_work);
 			spin_unlock_bh(&sync_dev->row_spinlocks[sync_obj]);
 		}
 
-		return rc;
+		return 0;
 	}
 
 	sync_cb->callback_func = cb_func;
 	sync_cb->cb_data = userdata;
 	sync_cb->sync_obj = sync_obj;
+	INIT_WORK(&sync_cb->cb_dispatch_work, cam_sync_util_cb_dispatch);
 	list_add_tail(&sync_cb->list, &row->callback_list);
 
 	if (test_bit(CAM_GENERIC_FENCE_TYPE_SYNC_OBJ, &cam_sync_monitor_mask))
@@ -1372,7 +1356,7 @@ static int cam_generic_fence_handle_dma_import(
 			fence_cfg->reason_code = rc;
 
 			/* put on the import refcnt */
-			cam_dma_fence_get_put_ref(false, dma_fence_row_idx, fence);
+			cam_dma_fence_get_put_ref(false, dma_fence_row_idx);
 			goto out_copy;
 		}
 
@@ -2496,10 +2480,10 @@ static int cam_sync_close(struct file *filep)
 		}
 
 		/*
-		 * Flush the worker to wait for pending signal callbacks to
+		 * Flush the work queue to wait for pending signal callbacks to
 		 * finish
 		 */
-		cam_worker_wrapper_flush(sync_dev->worker_ctx);
+		flush_workqueue(sync_dev->work_queue);
 
 		/*
 		 * Now that all callbacks worker threads have finished,
@@ -2792,7 +2776,6 @@ static int cam_sync_component_bind(struct device *dev,
 	struct platform_device *pdev = to_platform_device(dev);
 	struct timespec64 ts_start, ts_end;
 	long microsec = 0;
-	struct cam_worker_wrapper_init_args worker_init_args = {0};
 
 	CAM_GET_TIMESTAMP(ts_start);
 	sync_dev = CAM_MEM_ZALLOC(sizeof(*sync_dev), GFP_KERNEL);
@@ -2854,32 +2837,21 @@ static int cam_sync_component_bind(struct device *dev,
 	 */
 	set_bit(0, sync_dev->bitmap);
 
-	worker_init_args.name = CAM_SYNC_WORKER_NAME;
-	worker_init_args.num_tasks = CAM_SYNC_WORKER_NUM_TASK;
-	worker_init_args.max_active = 0;
-	worker_init_args.in_irq = WORKER_USAGE_IRQ;
-	worker_init_args.flag = 0;
-	worker_init_args.priv_data = NULL;
-	worker_init_args.index = 0;
-	worker_init_args.worker_ctx_priv = &sync_dev->worker_ctx;
-	rc = cam_worker_wrapper_init(&worker_init_args, WORKER_CLASS_NRT);
-	if (rc) {
+	sync_dev->work_queue = alloc_ordered_workqueue(CAM_SYNC_WORKQUEUE_NAME, 0);
+
+	if (!sync_dev->work_queue) {
 		CAM_ERR(CAM_SYNC,
 			"Error: high priority work queue creation failed");
 		rc = -ENOMEM;
 		goto v4l2_fail;
 	}
 
-	for (idx = 0; idx < CAM_SYNC_WORKER_NUM_TASK; idx++)
-		cam_worker_wrapper_payload_bind(
-			sync_dev->worker_ctx, sync_dev, idx);
-
 	/* Initialize dma fence driver */
 	rc = cam_dma_fence_driver_init();
 	if (rc) {
 		CAM_ERR(CAM_SYNC,
 			"DMA fence driver initialization failed rc: %d", rc);
-		goto worker_destroy;
+		goto workq_destroy;
 	}
 
 	trigger_cb_without_switch = false;
@@ -2911,8 +2883,8 @@ static int cam_sync_component_bind(struct device *dev,
 dma_driver_deinit:
 	cam_dma_fence_driver_deinit();
 #endif
-worker_destroy:
-	cam_worker_wrapper_deinit(sync_dev->worker_ctx);
+workq_destroy:
+	destroy_workqueue(sync_dev->work_queue);
 v4l2_fail:
 	v4l2_device_unregister(sync_dev->vdev->v4l2_dev);
 register_fail:

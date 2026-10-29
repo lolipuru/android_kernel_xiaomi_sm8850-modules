@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef __UAPI_CAM_SENSOR_H__
@@ -13,7 +13,8 @@
 
 #define CAM_SENSOR_PROBE_CMD      (CAM_COMMON_OPCODE_MAX + 1)
 #define CAM_FLASH_MAX_LED_TRIGGERS 2
-#define MAX_OIS_NAME_SIZE 32
+#define MAX_OIS_NAME_SIZE 64 //xiaomi change from 32 to 64
+#define MAX_ZOOM_NAME_SIZE 64 //xiaomi add
 #define MAX_OIS_FW_COUNT  2
 #define CAM_CSIPHY_SECURE_MODE_ENABLED 1
 #define CAM_SENSOR_NAME_MAX_SIZE 32
@@ -45,14 +46,11 @@
 #define CAM_SENSOR_PACKET_BUBBLE_UPD_I2C_COMMANDS_META  4
 
 /* SENSOR blob types */
-#define CAM_SENSOR_GENERIC_BLOB_RES_INFO                 0
-#define CAM_SENSOR_GENERIC_BLOB_FRAME_INFO               1
-#define CAM_SENSOR_GENERIC_BLOB_QUERY_LAST_APPLIED_INFO  2
+#define CAM_SENSOR_GENERIC_BLOB_RES_INFO           0
+#define CAM_SENSOR_GENERIC_BLOB_FRAME_INFO         1
 
 #define CAM_OIS_FWINFO_VERSION_1  1
 #define CAM_OIS_FWINFO_VERSION_2  2
-
-#define CAM_SENSOR_GET_QUERY_CAP_V2
 
 enum camera_sensor_cmd_type {
 	CAMERA_SENSOR_CMD_TYPE_INVALID,
@@ -73,6 +71,7 @@ enum camera_sensor_cmd_type {
 	CAMERA_SENSOR_CMD_TYPE_RD_DATA,
 	CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE,
 	CAMERA_SENSOR_OIS_CMD_TYPE_FW_INFO,
+	CAMERA_SENSOR_POWER_CMD_TYPE_SET_VOLTAGE = 19, // xiaomi add
 	CAMERA_SENSOR_CMD_TYPE_MAX,
 };
 
@@ -82,7 +81,18 @@ enum cam_actuator_packet_opcodes {
 	CAM_ACTUATOR_PACKET_MANUAL_MOVE_LENS,
 	CAM_ACTUATOR_PACKET_OPCODE_READ,
 	CAM_ACTUATOR_PACKET_OPCODE_PARK_LENS,
+	CAM_ACTUATOR_PACKET_OPCODE_MIPARK_LENS, // xiaomi add
+	CAM_ACTUATOR_PACKET_OPCODE_SET_VOLTAGE, // xiaomi add
 	CAM_ACTUATOR_PACKET_NOP_OPCODE = 127
+};
+
+//xiaomi add
+enum cam_zoom_packet_opcodes {
+	CAM_ZOOM_PACKET_OPCODE_INIT,
+	CAM_ZOOM_PACKET_AUTO_MOVE_LENS,
+	CAM_ZOOM_PACKET_MANUAL_MOVE_LENS,
+	CAM_ZOOM_PACKET_OPCODE_READ,
+	CAM_ZOOM_PACKET_NOP_OPCODE = 127,
 };
 
 enum cam_eeprom_packet_opcodes {
@@ -94,7 +104,8 @@ enum cam_ois_packet_opcodes {
 	CAM_OIS_PACKET_OPCODE_INIT,
 	CAM_OIS_PACKET_OPCODE_OIS_CONTROL,
 	CAM_OIS_PACKET_OPCODE_READ,
-	CAM_OIS_PACKET_OPCODE_WRITE_TIME
+	CAM_OIS_PACKET_OPCODE_WRITE_TIME,
+	CAM_OIS_PACKET_OPCODE_OIS_PARKLENS // xiaomi add
 };
 
 enum camera_sensor_i2c_op_code {
@@ -115,6 +126,9 @@ enum camera_sensor_wait_op_code {
 	CAMERA_SENSOR_WAIT_OP_COND,
 	CAMERA_SENSOR_WAIT_OP_HW_UCND,
 	CAMERA_SENSOR_WAIT_OP_SW_UCND,
+// add by xiaomi start
+	CAMERA_SENSOR_WAIT_OP_COND_NE,
+// add by xiaomi
 	CAMERA_SENSOR_WAIT_OP_MAX,
 };
 
@@ -140,6 +154,7 @@ enum cam_sensor_packet_opcodes {
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_REG_BANK_LOCK,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_BUBBLE_UPDATE,
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_DEFERRED_META,
+	CAM_SENSOR_PACKET_OPCODE_SENSOR_DELAY_CONFIG, //add by xiaomi
 	CAM_SENSOR_PACKET_OPCODE_SENSOR_NOP = 127,
 };
 
@@ -275,6 +290,7 @@ struct  cam_sensor_query_cap {
 	__u32        ois_slot_id;
 	__u32        flash_slot_id;
 	__u32        csiphy_slot_id;
+	__u32        zoom_slot_id;  //xiaomi add
 } __attribute__((packed));
 
 /**
@@ -300,6 +316,17 @@ struct cam_csiphy_query_cap {
  * @reserved
  */
 struct cam_actuator_query_cap {
+	__u32            slot_info;
+	__u32            reserved;
+} __attribute__((packed));
+
+/**
+ * struct cam_zoom_query_cap - capabilities info for zoom
+ *
+ * @slot_info        :  Indicates about the slotId or cell Index
+ * @reserved
+ */
+struct cam_zoom_query_cap {
 	__u32            slot_info;
 	__u32            reserved;
 } __attribute__((packed));
@@ -343,6 +370,26 @@ struct cam_tpg_query_cap {
 	__u32        reserved[2];
 } __attribute__((packed));
 
+//xiaomi add begin
+/**
+ * struct cam_cmd_zoom_info - Contains slave I2C related info
+ *
+ * @slave_addr      :    Slave address
+ * @i2c_freq_mode   :    4 bits are used for I2c freq mode
+ * @cmd_type        :    Explains type of command
+ */
+struct cam_cmd_zoom_info {
+	__u32    slave_addr;
+	__u8     i2c_freq_mode;
+	__u8     cmd_type;
+	__u16    reserved;
+	__u32    zoom_3polefw_version;
+	__u32    zoom_5polefw_version;
+	__u32    zoom_hw_version;
+	char     zoom_name[MAX_ZOOM_NAME_SIZE];
+	__u8     noupdate_fw_flash;
+} __attribute__((packed));
+//xiaomi add end
 
 /**
  * struct cam_cmd_i2c_info - Contains slave I2C related info
@@ -404,7 +451,7 @@ struct cam_sensor_res_info {
 	char  caps[64];
 	__u32 num_valid_params;
 	__u32 valid_param_mask;
-	__u16 params[5];
+	__u16 params[3];
 } __attribute__((packed));
 
 /**
@@ -431,39 +478,33 @@ struct cam_sensor_frame_info {
 } __attribute__((packed));
 
 /**
- * struct cam_sensor_last_applied_info - Contains sensor last applied related info
- *
- * @version          : Version info
- * @res_index        : Last applied resolution index
- * @feature_mask     : The feature mask of last applied req
- * @req_id           : Last applied request id
- * @num_valid_params : Number of valid params
- * @valid_param_mask : Valid param mask
- * @params           : params
- */
-struct cam_sensor_last_applied_info {
-	__u32 version;
-	__u16 res_index;
-	__u16 feature_mask;
-	__u64 req_id;
-	__u32 num_valid_params;
-	__u32 valid_param_mask;
-	__u64 params[4];
-} __attribute__((packed));
-
-/**
  * struct cam_ois_opcode - Contains OIS opcode
  *
  * @prog            :    OIS FW prog register address
  * @coeff           :    OIS FW coeff register address
  * @pheripheral     :    OIS pheripheral
  * @memory          :    OIS memory
+ * @fw_version_addr :    OIS fw version addr
+ * @fw_addr_type    :    OIS fw addr type
+ * @is_addr_increase        :    OIS addr Increase
+ * @customized_ois_flag     :    customized ois flag
+ * @fw_mem_store            :    is fw mem store
+ * @is_ois_fw_update        :    is ois fw update
  */
 struct cam_ois_opcode {
 	__u32 prog;
 	__u32 coeff;
 	__u32 pheripheral;
 	__u32 memory;
+	//xiaomi add begain
+	__u32 afcoeff;
+	__u32 fw_version_addr;
+	__u8  fw_addr_type;
+	__u8  is_addr_increase;
+	__u8  customized_ois_flag;
+	bool  fw_mem_store;
+	bool  is_ois_fw_update;
+	//xiaomi add end
 } __attribute__((packed));
 
 /**
@@ -656,6 +697,23 @@ struct cam_power_settings {
 } __attribute__((packed));
 
 /**
+ * struct cam_cmd_set_power_voltage - Contains set power voltage info
+ *
+ * @voltage  :   Voltage to set
+ * @pinType  :   Pin type
+ * @cmdType  :   Command type
+ * @delayUs  :   Delay in microseconds
+ *
+ */
+struct cam_cmd_set_power_voltage
+{
+    __u32  voltage;
+    __u8   pin_type;
+    __u8   cmd_type;
+    __u16  delay_ms;
+} __attribute__((packed));
+
+/**
  * struct cam_cmd_power - Explains about the power settings
  *
  * @count           :    Number of power settings follows
@@ -844,7 +902,7 @@ struct cam_csiphy_aux_settings_params {
 	__u64 data_rate_aux_mask;
 	__u32 num_valid_params;
 	__u32 valid_param_mask;
-	__u32 params[3];
+	__u32 params[2];
 };
 
 /**
@@ -880,6 +938,7 @@ struct cam_csiphy_info {
  * @num_valid_params     : Number of valid params
  * @param_mask           : Mask to indicate what the parameters are
  * @params               : Additional params
+ * @force_aon_eq         : force_aon_eq
  */
 struct cam_csiphy_info_v2 {
 	__u16    version;
@@ -893,6 +952,7 @@ struct cam_csiphy_info_v2 {
 	__u32    num_valid_params;
 	__u32    param_mask;
 	__u32    params[5];
+	__u32    force_aon_eq;
 } __attribute__((packed));
 
 /**
@@ -1321,11 +1381,10 @@ struct cam_flash_set_on_off {
  *
  */
 struct cam_flash_query_curr {
-	__u32    reserved;
+	__u16    reserved;
 	__u8     opcode;
 	__u8     cmd_type;
 	__u32    query_current_ma;
-	__u16    reserved1;
 } __attribute__ ((packed));
 
 /**
@@ -1342,32 +1401,6 @@ struct cam_flash_query_cap_info {
 	__u32    max_current_flash[CAM_FLASH_MAX_LED_TRIGGERS];
 	__u32    max_duration_flash[CAM_FLASH_MAX_LED_TRIGGERS];
 	__u32    max_current_torch[CAM_FLASH_MAX_LED_TRIGGERS];
-} __attribute__ ((packed));
-
-/**
- * struct cam_flash_query_cap_v2  :  capabilities info for flash
- *
- * @version             :  Version to indicate the change
- * @slot_info           :  Indicates about the slotId or cell Index
- * @max_current_flash   :  max supported current for flash
- * @max_duration_flash  :  max flash turn on duration
- * @max_current_torch   :  max supported current for torch
- * @flash_type          :  Flag to indicate flash type (i2c/pmic)
- * @num_valid_params    :  Number of valid params to pass
- * @param_mask          :  Param mask for the params passed
- * @params              :  Array to contain future parameters
- *
- */
-struct cam_flash_query_cap_info_v2 {
-	__u32    version;
-	__u32    slot_info;
-	__u32    max_current_flash[CAM_FLASH_MAX_LED_TRIGGERS];
-	__u32    max_duration_flash[CAM_FLASH_MAX_LED_TRIGGERS];
-	__u32    max_current_torch[CAM_FLASH_MAX_LED_TRIGGERS];
-	__u32    flash_type;
-	__u32    num_valid_params;
-	__u32    param_mask;
-	__u32    params[3];
 } __attribute__ ((packed));
 
 #endif

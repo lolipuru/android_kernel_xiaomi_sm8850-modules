@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include "cam_csiphy_soc.h"
 #include "cam_csiphy_core.h"
-#include "include/cam_csiphy_1_2_3_hwreg.h"
 #include "include/cam_csiphy_2_1_0_hwreg.h"
 #include "include/cam_csiphy_2_1_1_hwreg.h"
 #include "include/cam_csiphy_2_1_2_hwreg.h"
@@ -15,9 +14,11 @@
 #include "include/cam_csiphy_2_2_1_hwreg.h"
 #include "include/cam_csiphy_2_3_0_hwreg.h"
 #include "include/cam_csiphy_2_4_0_hwreg.h"
-#include "include/cam_csiphy_2_4_1_hwreg.h"
-#include "include/cam_csiphy_2_4_2_hwreg.h"
 #include "cam_mem_mgr_api.h"
+// XIAOMI ADD: enableForceFullRecoveryForCRC
+#include <media/cam_csiphy_xm_data.h>
+#include <cam_ife_csid_common.h>
+// END: enableForceFullRecoveryForCRC
 
 /* Clock divide factor for CPHY spec v1.0 */
 #define CSIPHY_DIVISOR_16                    16
@@ -27,6 +28,18 @@
 #define CSIPHY_DIVISOR_8                     8
 #define CSIPHY_LOG_BUFFER_SIZE_IN_BYTES      250
 #define ONE_LOG_LINE_MAX_SIZE                20
+
+// XIAOMI ADD: FeatureAutoEQ
+extern uint64_t xm_mipi_kmd_setting;
+// END: FeatureAutoEQ
+
+// XIAOMI ADD: enableForceFullRecoveryForCRC
+static uint8_t init_once = 0;
+static char show_buffer[80];
+struct cam_csiphy_xm_data_t cam_csiphy_xm_data;
+static struct kobject csiphy_umd_paras_kobject;
+static void csiphy_umd_paras_kobj_init(void);
+// END: enableForceFullRecoveryForCRC
 
 static int cam_csiphy_io_dump(void __iomem *base_addr, uint16_t num_regs, int csiphy_idx)
 {
@@ -324,12 +337,14 @@ int32_t cam_csiphy_parse_dt_info(struct platform_device *pdev,
 
 	csiphy_dev->prgm_cmn_reg_across_csiphy = (bool) is_regulator_enable_sync;
 
-	if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v1.2.3")) {
-		csiphy_dev->ctrl_reg = &ctrl_reg_1_2_3;
-		csiphy_dev->hw_version = CSIPHY_VERSION_V123;
-		csiphy_dev->is_divisor_32_comp = true;
-		csiphy_dev->clk_lane = 0;
-	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.1.0")) {
+	// XIAOMI ADD: enableForceFullRecoveryForCRC
+	if (init_once == 0) {
+		csiphy_umd_paras_kobj_init();
+		init_once = 1;
+	}
+	// END: enableForceFullRecoveryForCRC
+
+	if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.1.0")) {
 		csiphy_dev->ctrl_reg = &ctrl_reg_2_1_0;
 		csiphy_dev->hw_version = CSIPHY_VERSION_V210;
 		csiphy_dev->is_divisor_32_comp = true;
@@ -369,17 +384,30 @@ int32_t cam_csiphy_parse_dt_info(struct platform_device *pdev,
 		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
 		csiphy_dev->is_divisor_32_comp = true;
 		csiphy_dev->clk_lane = 0;
-	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.1")) {
-		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_1;
-		csiphy_dev->hw_version = CSIPHY_VERSION_V241;
+/* xiaomi add cphy reg - begin */
+	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.0-2")) {
+		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_0_2;
+		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
 		csiphy_dev->is_divisor_32_comp = true;
 		csiphy_dev->clk_lane = 0;
-	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.2")) {
-		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_2;
-		csiphy_dev->hw_version = CSIPHY_VERSION_V242;
+	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.0-sh3")) {
+		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_0_sh3;
+		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
 		csiphy_dev->is_divisor_32_comp = true;
 		csiphy_dev->clk_lane = 0;
-	} else {
+	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.0-sh11")) {
+		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_0_sh11;
+		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
+		csiphy_dev->is_divisor_32_comp = true;
+		csiphy_dev->clk_lane = 0;
+	} else if (of_device_is_compatible(soc_info->dev->of_node, "qcom,csiphy-v2.4.0-4")) {
+		csiphy_dev->ctrl_reg = &ctrl_reg_2_4_0_4;
+		csiphy_dev->hw_version = CSIPHY_VERSION_V240;
+		csiphy_dev->is_divisor_32_comp = true;
+		csiphy_dev->clk_lane = 0;
+	}
+/* xiaomi add cphy reg - end */
+	else {
 		CAM_ERR(CAM_CSIPHY, "invalid hw version : 0x%x",
 			csiphy_dev->hw_version);
 		rc = -EINVAL;
@@ -431,3 +459,195 @@ int32_t cam_csiphy_soc_release(struct csiphy_device *csiphy_dev)
 
 	return 0;
 }
+
+// XIAOMI ADD: enableForceFullRecoveryForCRC
+static void deal_with_cmd(u64 cmd, u64 value)
+{
+	char valid = 0;
+
+	switch (cmd) {
+		case XM_CSIPHY_CRC_THRESHOLD_DIVISOR: {
+			if ((value >= CAM_IFE_CSID_MIN_CRC_ERR_DIVISOR_XIAOMI) ||
+				(value <= CAM_IFE_CSID_MAX_CRC_ERR_DIVISOR_XIAOMI)) {
+				valid = 1;
+				cam_csiphy_xm_data.crc_threshold_divisor = value;
+			}
+			break;
+		}
+		case XM_CSIPHY_CRC_FORCE_FULL_RECOVERY: {
+			if ((value == XM_CSIPHY_CRC_FORCE_FULL_RECOVERY_ENABLE) ||
+				(value == XM_CSIPHY_CRC_FORCE_FULL_RECOVERY_DIABLE)) {
+				valid = 1;
+				cam_csiphy_xm_data.crc_force_full_recovery = value;
+			}
+			break;
+		}
+		case XM_CSIPHY_ENABLE_AUTO_EQ: {
+			if ((value == XM_CSIPHY_ENABLE_AUTO_EQ_ENABLE) ||
+				(value == XM_CSIPHY_ENABLE_AUTO_EQ_DISABLE)) {
+				valid = 1;
+				cam_csiphy_xm_data.auto_eq_enable = value;
+			}
+			break;
+		}
+		case XM_CSIPHY_RESET_PHY_PARA: {
+			valid = 1;
+			xm_mipi_kmd_setting = value;
+			break;
+		}
+		default:
+			CAM_WARN(CAM_CSIPHY, "unsupport cmd [%s]", show_buffer);
+			break;
+	}
+
+	CAM_INFO(CAM_CSIPHY, "cmd 0x%08x, value 0x%llx, %s", cmd, value, valid?"valid":"invalid");
+}
+
+static void deal_phy_case(char *show_buffer)
+{
+	char *token, *rest = show_buffer;
+	int fields_num, error;
+	u64 cmd, value;
+
+	CAM_DBG(CAM_CSIPHY, "recive buf [%s]", show_buffer);
+	fields_num = 0;
+	error = 0;
+	while ((token = strsep(&rest, ",")) != NULL) {
+		fields_num++;
+		if (fields_num == 1) {
+			if (kstrtou64(token, 0, &cmd)) {
+				error++;
+				CAM_ERR(CAM_CSIPHY, "error converting buf:[%s]", show_buffer);
+			}
+		} else if (fields_num == 2) {
+			if (kstrtou64(token, 0, &value)) {
+				error++;
+				CAM_ERR(CAM_CSIPHY, "error converting buf:[%s]", show_buffer);
+			}
+		}
+	}
+	if ((fields_num !=2) || (error)) {
+		CAM_ERR(CAM_CSIPHY, "invalid buffer %s", show_buffer);
+		return ;
+	}
+	deal_with_cmd(cmd, value);
+
+	return ;
+}
+
+static ssize_t csiphy_umd_paras_show(struct kobject *kobj, struct kobj_attribute *attr,
+	char *buf)
+{
+	return snprintf(buf, 64, "%llx", xm_mipi_kmd_setting);
+}
+static ssize_t csiphy_umd_paras_store(struct kobject *kobj, struct kobj_attribute *attr,
+	const char *buf, size_t count)
+{
+	memset(show_buffer, 0, sizeof(show_buffer));
+	memcpy(show_buffer, buf, 64);
+	deal_phy_case(show_buffer);
+
+	return count;
+}
+static ssize_t csiphy_umd_paras_object_show(struct kobject *k, struct attribute *attr, char *buf)
+{
+	struct kobj_attribute *kobj_attr;
+	int ret = -EIO;
+	kobj_attr = container_of(attr, struct kobj_attribute, attr);
+	if (kobj_attr->show)
+		ret = kobj_attr->show(k, kobj_attr, buf);
+	return ret;
+}
+static ssize_t csiphy_umd_paras_object_store(struct kobject *k, struct attribute *attr, const char *buf, size_t size)
+{
+	struct kobj_attribute *kobj_attr;
+	int ret = -EIO;
+	kobj_attr = container_of(attr, struct kobj_attribute, attr);
+	if (kobj_attr->store)
+		ret = kobj_attr->store(k, kobj_attr, buf, sizeof(buf));
+
+	return ret;
+}
+
+static struct kobj_attribute csiphy_umd_paras_attribute =
+	__ATTR(csiphy_umd_paras, 0644, csiphy_umd_paras_show, csiphy_umd_paras_store);
+
+static const struct sysfs_ops csiphy_umd_paras_sysfs_ops = {
+	.show = csiphy_umd_paras_object_show,
+	.store = csiphy_umd_paras_object_store,
+};
+
+static struct kobj_type csiphy_umd_paras_object_type = {
+	.sysfs_ops = &csiphy_umd_paras_sysfs_ops,
+	.release	= NULL,
+};
+static void csiphy_umd_paras_kobj_init(void)
+{
+	int rc = 0;
+	memset(&csiphy_umd_paras_kobject, 0x00, sizeof(csiphy_umd_paras_kobject));
+	if (kobject_init_and_add(&csiphy_umd_paras_kobject, &csiphy_umd_paras_object_type, NULL, "csiphy_umd_paras")) {
+		kobject_put(&csiphy_umd_paras_kobject);
+		return;
+	}
+	kobject_uevent(&csiphy_umd_paras_kobject, KOBJ_ADD);
+	rc = sysfs_create_file(&csiphy_umd_paras_kobject, &csiphy_umd_paras_attribute.attr);
+	if (rc < 0) {
+		CAM_ERR(CAM_CPAS,
+			"Failed to create debug attribute, rc=%d\n", rc);
+		sysfs_remove_file(&csiphy_umd_paras_kobject, &csiphy_umd_paras_attribute.attr);
+	}
+	return ;
+}
+// END: enableForceFullRecoveryForCRC
+
+// XIAOMI ADD: Force AON EQ Start
+struct csiphy_aon_ctrl_t* cam_csiphy_get_aon_eq(uint32_t csiphy_hw_version,
+	uint32_t csiphy_aon_eq_val)
+{
+	struct csiphy_aon_ctrl_t *ctrl_aon_reg = NULL;
+
+	switch (csiphy_hw_version) {
+		case CSIPHY_VERSION_V10:
+			break;
+		case CSIPHY_VERSION_V11:
+			break;
+		case CSIPHY_VERSION_V12:
+			break;
+		case CSIPHY_VERSION_V121:
+			break;
+		case CSIPHY_VERSION_V123:
+			break;
+		case CSIPHY_VERSION_V124:
+			break;
+		case CSIPHY_VERSION_V125:
+			break;
+		case CSIPHY_VERSION_V20:
+			break;
+		case CSIPHY_VERSION_V201:
+			break;
+		case CSIPHY_VERSION_V210:
+			break;
+		case CSIPHY_VERSION_V211:
+			break;
+		case CSIPHY_VERSION_V212:
+			break;
+		case CSIPHY_VERSION_V213:
+			break;
+		case CSIPHY_VERSION_V220:
+			break;
+		case CSIPHY_VERSION_V221:
+			break;
+		case CSIPHY_VERSION_V230:
+			break;
+		case CSIPHY_VERSION_V240:
+			if (csiphy_aon_eq_val <= ARRAY_SIZE(ctrl_aon_reg_2_4_0))
+				ctrl_aon_reg = &ctrl_aon_reg_2_4_0[csiphy_aon_eq_val-1];
+			break;
+		default:
+			break;
+	}
+
+	return ctrl_aon_reg;
+}
+// END: Force AON EQ
+

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -32,8 +32,11 @@
 #include "cam_vmrm_interface.h"
 #include "cam_mem_mgr_api.h"
 #include "cam_req_mgr_debug.h"
+#include "cam_dump_util.h" //xiaomi add
 
-#define CAM_REQ_MGR_EVENT_MAX 30
+// xiaomi enlarge 30->300 - start
+#define CAM_REQ_MGR_EVENT_MAX 300
+// xiaomi enlarge 30->300 - end
 #define CAM_I3C_MASTER_COMPAT "qcom,geni-i3c"
 
 static struct cam_req_mgr_device g_dev;
@@ -50,6 +53,7 @@ static const struct of_device_id cam_sensor_module_dt_match[] = {
 	{ .compatible = "qcom,eeprom" },
 	{.compatible = "qcom,actuator"},
 	{ .compatible = "qcom,ois" },
+	{.compatible = "qcom,zoom"},    //xiaomi add
 	{.compatible = "qcom,camera-flash", .data = NULL},
 	{}
 };
@@ -525,21 +529,13 @@ static long cam_private_ioctl(struct file *file, void *fh,
 			return -ENOMEM;
 		}
 
-		/* Copy full struct (header + link_hdls[]) from userspace */
 		if (copy_from_user(sched_req, u64_to_user_ptr(k_ioctl->handle), sched_req_size)) {
 			CAM_MEM_FREE(sched_req);
 			sched_req = NULL;
 			return -EFAULT;
 		}
 
-		/* Reject if header num_links mismatches validated value */
-		if (sched_req->num_links != num_links) {
-			CAM_ERR(CAM_CRM, "num_links mismatch: hdr:%d body:%d",
-				num_links, sched_req->num_links);
-			CAM_MEM_FREE(sched_req);
-			sched_req = NULL;
-			return -EINVAL;
-		}
+		crm_sched_req.num_links = num_links;
 
 		rc = cam_req_mgr_schedule_request_v3(sched_req);
 		CAM_MEM_FREE(sched_req);
@@ -829,6 +825,60 @@ static long cam_private_ioctl(struct file *file, void *fh,
 			rc = -EFAULT;
 		}
 		break;
+//xiaomi add
+	case CAM_REQ_MGR_QUERY_DUMP_MSG:{
+		struct cam_debug_record_key_message_buffer *cam_key_buffer;
+		struct cam_io_data_record *cam_io_record_buffer;
+		struct cam_power_info_record *cam_power_record_buffer;
+		if(k_ioctl->size == sizeof(struct cam_debug_record_key_message_buffer))
+		{
+			cam_key_buffer = cam_get_key_msg_buffer();
+			if(cam_key_buffer == NULL)
+			{
+				rc = -EFAULT;
+			}
+			else if(copy_to_user(
+				u64_to_user_ptr(k_ioctl->handle),
+				cam_key_buffer,
+				sizeof(struct cam_debug_record_key_message_buffer))){
+				rc = -EFAULT;
+				}
+		}
+		else if(k_ioctl->size == sizeof(struct cam_power_info_record))
+		{
+			cam_power_record_buffer = cam_get_power_msg_buffer();
+			if(cam_power_record_buffer == NULL)
+			{
+				rc = -EFAULT;
+			}
+			else if(copy_to_user(
+				u64_to_user_ptr(k_ioctl->handle),
+				cam_power_record_buffer,
+				sizeof(struct cam_power_info_record))){
+				rc = -EFAULT;
+			}
+		}
+		else if(k_ioctl->size == sizeof(struct cam_io_data_record))
+		{
+			cam_io_record_buffer = cam_get_io_msg_buffer();
+			if(cam_io_record_buffer == NULL)
+			{
+				rc = -EFAULT;
+			}
+			else if(copy_to_user(
+				u64_to_user_ptr(k_ioctl->handle),
+				cam_io_record_buffer,
+				sizeof(struct cam_io_data_record))){
+					rc = -EFAULT;
+				}
+		}
+		else
+		{
+			return -EINVAL;
+		}
+	}
+		break;
+//end
 	default:
 		CAM_ERR(CAM_CRM, "Invalid Opcode %d", k_ioctl->op_code);
 		rc = -ENOIOCTLCMD;
@@ -1129,19 +1179,12 @@ static int cam_req_mgr_component_master_bind(struct device *dev)
 	if (rc < 0) {
 		CAM_ERR(CAM_CPAS,
 			"Failed to create debug attribute, rc=%d\n", rc);
-		goto req_mgr_device_deinit;
-	}
-
-	/* Set up debugfs and worker for thread property update */
-	rc = cam_worker_wrapper_prop_update_init();
-	if (rc) {
-		CAM_ERR(CAM_CRM, "Failed at setting up prop update debugfs, rc: %d", rc);
-		goto sysfs_remove;
+		goto sysfs_fail;
 	}
 
 	return rc;
 
-sysfs_remove:
+sysfs_fail:
 	sysfs_remove_file(&dev->kobj, &camera_debug_sysfs_attr.attr);
 req_mgr_device_deinit:
 	cam_req_mgr_destroy_timer_slab();
@@ -1175,7 +1218,6 @@ static void cam_req_mgr_component_master_unbind(struct device *dev)
 	component_unbind_all(dev, NULL);
 
 	/* Now proceed with unbinding master */
-	cam_worker_wrapper_prop_update_deinit();
 	sysfs_remove_file(&dev->kobj, &camera_debug_sysfs_attr.attr);
 	cam_req_mgr_core_device_deinit();
 	cam_req_mgr_util_deinit();

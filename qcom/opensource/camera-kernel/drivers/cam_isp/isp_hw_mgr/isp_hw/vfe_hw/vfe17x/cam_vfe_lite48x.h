@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_VFE_LITE48x_H_
@@ -11,58 +11,6 @@
 #include "cam_irq_controller.h"
 #include "cam_vfe_top_ver3.h"
 #include "cam_vfe_core.h"
-
-
-static struct cam_vfe_top_err_irq_desc vfe48x_camif_rdi_top_violation_irq_err_desc[] = {
-	{
-		.bitmask = BIT(2),
-		.err_name  = "RDI0_CAMIF_VIOLATION_IRQ",
-		.desc = "CCIF protocol violation within camif of RDI0 pipeline.",
-	},
-	{
-		.bitmask = BIT(3),
-		.err_name  = "RDI1_CAMIF_VIOLATION_IRQ",
-		.desc = "CCIF protocol violation within camif of RDI1 pipeline.",
-	},
-	{
-		.bitmask  = BIT(4),
-		.err_name  = "RDI2_CAMIF_VIOLATION_IRQ",
-		.desc = "CCIF protocol violation within camif of RDI2 pipeline.",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe48x_camif_rdi_top_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(17),
-		.err_name = "RDI0_OVERFLOW_IRQ",
-		.desc = "overflow in the RDI0 Pipe.",
-	},
-	{
-		.bitmask = BIT(18),
-		.err_name  = "RDI1_OVERFLOW_IRQ",
-		.desc = "overflow in the RDI1 Pipe.",
-	},
-	{
-		.bitmask = BIT(19),
-		.err_name  = "RDI2_OVERFLOW_IRQ",
-		.desc = "overflow in the RDI2 Pipe.",
-	},
-};
-
-static struct cam_vfe_top_err_irq_desc vfe48x_camif_rdi_bus_overflow_irq_err_desc[] = {
-	{
-		.bitmask = BIT(7),
-		.err_name = "RDI0 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(8),
-		.err_name  = "RDI1 BUS OVERFLOW",
-	},
-	{
-		.bitmask = BIT(9),
-		.err_name  = "RDI2 BUS OVERFLOW",
-	},
-};
 
 static struct cam_irq_register_set vfe48x_top_irq_reg_set[3] = {
 	{
@@ -90,13 +38,6 @@ static struct cam_irq_controller_reg_info vfe48x_top_irq_reg_info = {
 	.clear_all_bitmask     = 0xFFFFFFFF,
 };
 
-static uint32_t vfe48x_top_debug_reg[] = {
-	0x0000005C,
-	0x00000068,
-	0x0000006C,
-	0x00000070,
-};
-
 static struct cam_vfe_top_ver3_reg_offset_common vfe48x_top_common_reg = {
 	.hw_version               = 0x00000000,
 	.titan_version            = 0x00000004,
@@ -110,8 +51,10 @@ static struct cam_vfe_top_ver3_reg_offset_common vfe48x_top_common_reg = {
 	.diag_sensor_status_0     = 0x00000054,
 	.bus_overflow_status      = 0x00001A68,
 	.top_debug_cfg            = 0x00000074,
-	.num_top_debug_reg        = ARRAY_SIZE(vfe48x_top_debug_reg),
-	.top_debug                = vfe48x_top_debug_reg,
+	.top_debug_0              = 0x0000005C,
+	.top_debug_1              = 0x00000068,
+	.top_debug_2              = 0x0000006C,
+	.top_debug_3              = 0x00000070,
 };
 
 static struct cam_vfe_camif_lite_ver3_reg vfe48x_camif_rdi[4] = {
@@ -126,6 +69,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe48x_camif_rdi[4] = {
 		.lite_debug_0               = 0x13F4,
 		.lite_test_bus_ctrl         = 0x13F8,
 		.camif_lite_spare           = 0x13FC,
+		.reg_update_cmd             = 0x0020,
 	},
 	{
 		.lite_hw_version            = 0x1400,
@@ -138,6 +82,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe48x_camif_rdi[4] = {
 		.lite_debug_0               = 0x15F4,
 		.lite_test_bus_ctrl         = 0x15F8,
 		.camif_lite_spare           = 0x15FC,
+		.reg_update_cmd             = 0x0020,
 	},
 	{
 		.lite_hw_version            = 0x1600,
@@ -150,6 +95,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe48x_camif_rdi[4] = {
 		.lite_debug_0               = 0x17F4,
 		.lite_test_bus_ctrl         = 0x17F8,
 		.camif_lite_spare           = 0x17FC,
+		.reg_update_cmd             = 0x0020,
 	},
 	{
 		.lite_hw_version            = 0x1800,
@@ -162,6 +108,7 @@ static struct cam_vfe_camif_lite_ver3_reg vfe48x_camif_rdi[4] = {
 		.lite_debug_0               = 0x19F4,
 		.lite_test_bus_ctrl         = 0x19F8,
 		.camif_lite_spare           = 0x19FC,
+		.reg_update_cmd             = 0x0020,
 	},
 };
 
@@ -230,65 +177,21 @@ static struct cam_vfe_camif_lite_ver3_hw_info
 		.common_reg     = &vfe48x_top_common_reg,
 		.camif_lite_reg = &vfe48x_camif_rdi[0],
 		.reg_data       = &vfe48x_camif_rdi_reg_data[0],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe48x_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe48x_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe48x_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask        = 0x3F00,
-		.pd_violation_mask         = 0x0F0000,
 	},
 	{
 		.common_reg     = &vfe48x_top_common_reg,
 		.camif_lite_reg = &vfe48x_camif_rdi[1],
 		.reg_data       = &vfe48x_camif_rdi_reg_data[1],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe48x_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe48x_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe48x_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask        = 0x3F00,
-		.pd_violation_mask         = 0x0F0000,
 	},
 	{
 		.common_reg     = &vfe48x_top_common_reg,
 		.camif_lite_reg = &vfe48x_camif_rdi[2],
 		.reg_data       = &vfe48x_camif_rdi_reg_data[2],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe48x_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe48x_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe48x_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask        = 0x3F00,
-		.pd_violation_mask         = 0x0F0000,
 	},
 	{
 		.common_reg     = &vfe48x_top_common_reg,
 		.camif_lite_reg = &vfe48x_camif_rdi[3],
 		.reg_data       = &vfe48x_camif_rdi_reg_data[3],
-		.num_top_violation_errors  =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_violation_irq_err_desc),
-		.top_violation_err_desc    = vfe48x_camif_rdi_top_violation_irq_err_desc,
-		.num_top_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_top_overflow_irq_err_desc),
-		.top_overflow_err_desc     = vfe48x_camif_rdi_top_overflow_irq_err_desc,
-		.num_bus_overflow_errors   =
-					ARRAY_SIZE(vfe48x_camif_rdi_bus_overflow_irq_err_desc),
-		.bus_overflow_err_desc     = vfe48x_camif_rdi_bus_overflow_irq_err_desc,
-		.lcr_violation_mask        = 0x3F00,
-		.pd_violation_mask         = 0x0F0000,
 	},
 };
 
@@ -576,7 +479,6 @@ static struct cam_vfe_bus_ver3_hw_info vfe48x_bus_hw_info = {
 				BIT_ULL(CAM_FORMAT_PLAIN64) | BIT_ULL(CAM_FORMAT_YUV422_10),
 		},
 	},
-	.bus_err_irq_mask      = { 0xD0000000, 0x0},
 	.num_out = ARRAY_SIZE(vfe48x_out_hw_hw_info),
 	.vfe_out_hw_info = vfe48x_out_hw_hw_info,
 	.num_comp_grp    = 4,

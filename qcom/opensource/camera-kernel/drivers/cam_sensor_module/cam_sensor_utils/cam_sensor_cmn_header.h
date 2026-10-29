@@ -37,6 +37,7 @@
 #define CAM_EEPROM_NAME    "cam-eeprom"
 #define CAM_OIS_NAME       "cam-ois"
 #define CAM_TPG_NAME       "cam-tpg"
+#define CAM_ZOOM_NAME      "cam-zoom"  //xiaomi add
 
 #define MAX_SYSTEM_PIPELINE_DELAY 2
 
@@ -48,6 +49,9 @@ enum camera_flash_opcode {
 	CAMERA_SENSOR_FLASH_OP_FIRELOW,
 	CAMERA_SENSOR_FLASH_OP_FIREHIGH,
 	CAMERA_SENSOR_FLASH_OP_FIREDURATION,
+	// MIUI ADD: Camera_HWCapabilityLimit
+	CAMERA_SENSOR_FLASH_OP_LOW_FIREDURATION,
+	// END Camera_HWCapabilityLimit
 	CAMERA_SENSOR_FLASH_OP_MAX,
 };
 
@@ -96,6 +100,7 @@ enum sensor_sub_module {
 	SUB_MODULE_CSIPHY,
 	SUB_MODULE_OIS,
 	SUB_MODULE_EXT,
+	SUB_MODULE_ZOOM, //xiaomi add
 	SUB_MODULE_MAX,
 };
 
@@ -112,6 +117,10 @@ enum msm_camera_power_seq_type {
 	SENSOR_STANDBY,
 	SENSOR_CUSTOM_GPIO1,
 	SENSOR_CUSTOM_GPIO2,
+/* xiaomi add begin*/
+	SENSOR_BOB,
+	SENSOR_BOB2,
+/* xiaomi add end*/
 	SENSOR_VANA1,
 	SENSOR_CUSTOM_REG3,
 	SENSOR_SEQ_TYPE_MAX,
@@ -166,7 +175,8 @@ enum cam_sensor_i2c_cmd_type {
 	CAM_SENSOR_I2C_WRITE_SEQ,
 	CAM_SENSOR_I2C_READ_RANDOM,
 	CAM_SENSOR_I2C_READ_SEQ,
-	CAM_SENSOR_I2C_POLL
+	CAM_SENSOR_I2C_POLL,
+	CAM_SENSOR_I2C_POLL_NOT_EQUAL //xiaomi add
 };
 
 struct common_header {
@@ -213,6 +223,7 @@ struct cam_sensor_i2c_reg_array {
 
 enum cam_sensor_module_debugfs_device_type {
 	CAM_SENSOR_ACTUATOR,
+	CAM_SENSOR_ZOOM,   //xiaomi add
 	CAM_SENSOR_EEPROM,
 	CAM_SENSOR_FLASH,
 	CAM_SENSOR_OIS,
@@ -263,6 +274,8 @@ struct i2c_data_settings {
 	struct i2c_settings_array *bubble_update;
 	struct i2c_settings_array reg_bank_unlock_settings;
 	struct i2c_settings_array reg_bank_lock_settings;
+	struct i2c_settings_array delay_config_settings; //xiaomi add
+	struct i2c_settings_array parklens_settings; //xiaomi add
 };
 
 struct cam_sensor_power_ctrl_t {
@@ -351,6 +364,10 @@ enum msm_camera_vreg_name_t {
 	CAM_V_CUSTOM1,
 	CAM_V_CUSTOM2,
 	CAM_V_CUSTOM3,
+/* xiaomi add begin*/
+	CAM_BOB,
+	CAM_BOB2,
+/* xiaomi add end*/
 	CAM_CLK,
 	CAM_VREG_MAX,
 };

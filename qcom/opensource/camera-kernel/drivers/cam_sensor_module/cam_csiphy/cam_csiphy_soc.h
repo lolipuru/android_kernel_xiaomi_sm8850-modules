@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _CAM_CSIPHY_SOC_H_
@@ -39,8 +39,6 @@
 #define CSIPHY_VERSION_V221                       0x221
 #define CSIPHY_VERSION_V230                       0x230
 #define CSIPHY_VERSION_V240                       0x240
-#define CSIPHY_VERSION_V241                       0x241
-#define CSIPHY_VERSION_V242                       0x242
 
 /**
  * @csiphy_dev: CSIPhy device structure
@@ -88,4 +86,15 @@ int cam_csiphy_reg_dump(struct cam_hw_soc_info *soc_info);
  */
 int32_t cam_csiphy_common_status_reg_dump(struct csiphy_device *csiphy_dev,
 	bool dump_to_log);
+
+// XIAOMI ADD: Force AON EQ Start
+/**
+ * @csiphy_hw_version: CSIPhy device hw version
+ * @csiphy_aon_eq_val: index to select aon eq array
+ *
+ * This API get aon eq array for rfi test
+ */
+struct csiphy_aon_ctrl_t* cam_csiphy_get_aon_eq(uint32_t csiphy_hw_version,
+	uint32_t csiphy_aon_eq_val);
+// END: Force AON EQ
 #endif /* _CAM_CSIPHY_SOC_H_ */
