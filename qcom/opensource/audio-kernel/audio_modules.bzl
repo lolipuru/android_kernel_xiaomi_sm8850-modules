@@ -1,4 +1,4 @@
-load(":repo_paths.bzl", "modules_label")
+load(":repo_paths.bzl", "modules_label", "soc_label")
 load(":module_mgr.bzl", "create_module_registry")
 
 DSP_PATH = "dsp"
@@ -625,4 +625,18 @@ audio_modules.register(
         "wsa885x-i2c.c",
     ],
     deps = [":%b_gpr_dlkm"],
+)
+
+# >>>> TFA986X MODULE <<<<
+audio_modules.register(
+    name = "tfa98xx_dlkm",
+    path = ASOC_CODECS_PATH + "/tfa986x",
+    config_option = "CONFIG_SND_SOC_TFA986X",
+    srcs = [
+        "src/tfa_container.c",
+        "src/tfa_dsp.c",
+        "src/tfa_init.c",
+        "src/tfa98xx.c",
+    ],
+    deps = [soc_label("%b/drivers/misc/miev")],
 )
