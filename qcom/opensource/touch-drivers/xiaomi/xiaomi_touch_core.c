@@ -586,6 +586,7 @@ static void save_panel_notifier_status(long touch_id, enum suspend_state panel_s
 
 static void xiaomi_touch_resume_work(struct work_struct *work)
 {
+	int ret;
 	xiaomi_touch_data_t *xiaomi_touch_data = container_of(work, xiaomi_touch_data_t, resume_work);
 	s8 touch_id = xiaomi_touch_data->touch_id;
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(touch_id);
@@ -603,7 +604,12 @@ static void xiaomi_touch_resume_work(struct work_struct *work)
 	XIAOMI_TOUCH_UTC_PRINT("");
 
 	if (xiaomi_touch_driver_param->hardware_operation.ic_resume_suspend) {
-		xiaomi_touch_driver_param->hardware_operation.ic_resume_suspend(true, xiaomi_get_gesture_type(touch_id));
+		ret = xiaomi_touch_driver_param->hardware_operation.ic_resume_suspend(true,
+			xiaomi_get_gesture_type(touch_id));
+		if (ret) {
+			LOG_ERROR("touch id %d resume failed: %d", touch_id, ret);
+			return;
+		}
 	}
 	enable_temperature_detection_func(touch_id, true);
 #ifdef TOUCH_MULTI_PANEL_NOTIFIER_SUPPORT

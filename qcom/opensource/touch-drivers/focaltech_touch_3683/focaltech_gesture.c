@@ -396,9 +396,7 @@ void fts_gesture_recovery(struct fts_ts_data *ts_data)
         fts_write_reg(FTS_GESTURE_CTRL, ts_data->gesture_cmd);
         fts_write_reg(FTS_REG_GESTURE_EN, ENABLE);
 #ifdef FTS_TOUCHSCREEN_FOD
-        if (ts_data->fod_status != -1 && ts_data->fod_status != 0) {
-            fts_fod_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
-        }
+		fts_fod_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
 #endif
     }
 }
@@ -410,6 +408,7 @@ void fts_fod_recovery(void)
 		FTS_INFO("%s, tp is in suspend mode, write 0xD0 to 1, 0xD1 to 0x%x", __func__, fts_data->gesture_cmd);
 		fts_gesture_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
         fts_write_reg(FTS_GESTURE_CTRL, fts_data->gesture_cmd);
+		fts_fod_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
 	}
 	fts_fod_reg_write(FTS_REG_GESTURE_FOD_ON, true);
 	FTS_FUNC_EXIT();
@@ -498,13 +497,10 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 			break;
 	}
 #ifdef FTS_TOUCHSCREEN_FOD
-	if (ts_data->fod_status != -1 && ts_data->fod_status != 0) {
-		ret = fts_fod_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
-		if (ret) {
-			FTS_ERROR("[GESTURE]Enter into gesture(suspend) failed!\n");
-			// fts_gesture_data.active = DISABLE;
-			return -EIO;
-		}
+	ret = fts_fod_reg_write(FTS_REG_GESTURE_DOUBLETAP_ON, true);
+	if (ret) {
+		FTS_ERROR("[GESTURE]Enter into gesture(suspend) failed!\n");
+		return ret;
 	}
 #endif
 	if (i >= 5)

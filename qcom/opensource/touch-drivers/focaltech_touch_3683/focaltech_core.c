@@ -259,25 +259,24 @@ static bool fts_frame_parse_data(struct fts_ts_data *ts_data, struct frame_afe_d
 *****************************************************************************/
 int fts_wait_tp_to_valid(void)
 {
-    int ret = 0;
-    int cnt = 0;
-    u8 idh = 0;
-    struct fts_ts_data *ts_data = fts_data;
-    u8 chip_idh = ts_data->ic_info.ids.chip_idh;
+	int ret;
+	int cnt = 0;
+	u8 idh = 0;
+	struct fts_ts_data *ts_data = fts_data;
+	u8 chip_idh = ts_data->ic_info.ids.chip_idh;
 
-    do {
-        ret = fts_read_reg(FTS_REG_CHIP_ID, &idh);
-        if ((idh == chip_idh) || (fts_check_cid(ts_data, idh) == 0)) {
-            FTS_DEBUG("TP Ready,Device ID:0x%02x", idh);
-            return 0;
-        } else
-            FTS_ERROR("TP Not Ready,ReadData:0x%02x,ret:%d", idh, ret);
+	do {
+		ret = fts_read_reg(FTS_REG_CHIP_ID, &idh);
+		if (ret >= 0 && ((idh == chip_idh) || (fts_check_cid(ts_data, idh) == 0))) {
+			FTS_DEBUG("TP Ready,Device ID:0x%02x", idh);
+			return 0;
+		}
+		FTS_ERROR("TP Not Ready,ReadData:0x%02x,ret:%d", idh, ret);
+		cnt++;
+		msleep(INTERVAL_READ_REG);
+	} while ((cnt * INTERVAL_READ_REG) < TIMEOUT_READ_REG);
 
-        cnt++;
-        msleep(INTERVAL_READ_REG);
-    } while ((cnt * INTERVAL_READ_REG) < TIMEOUT_READ_REG);
-
-    return -EIO;
+	return -EIO;
 }
 
 /*****************************************************************************
@@ -339,17 +338,11 @@ void fts_reset_for_upgrade(void)
 
 int fts_recover_after_reset(void)
 {
-	int i = 0;
-	u8 id = 0;
-	for (i = 0; i < 20; i++) {
-		fts_read_reg(0xA3, &id);
-		if(id == FTS_CHIP_TYPE_ID) {
-			break;
-		}
-		msleep(10);
-	}
-	if(i >= 20) {
-		FTS_ERROR("wait tp fw valid timeout");
+	int ret = fts_wait_tp_to_valid();
+
+	if (ret) {
+		FTS_ERROR("wait tp fw valid failed: %d", ret);
+		return ret;
 	}
 
 #ifdef FTS_TOUCHSCREEN_FOD
@@ -3978,11 +3971,9 @@ int fts_ic_self_test(char *type, int *result)
 
 int fts_resume_suspend(bool resume, u8 gesture_type)
 {
-	if(resume)
-		fts_ts_resume(fts_data->dev);
-	else
-		fts_ts_suspend(fts_data->dev);
-	return 0;
+	if (resume)
+		return fts_ts_resume(fts_data->dev);
+	return fts_ts_suspend(fts_data->dev);
 }
 
 /*to do*/
@@ -4112,6 +4103,8 @@ int fts_thp_ic_write_interfaces_reg(u8 addr, u8 value)
         ret = fts_write_reg(addr, value);
         break;
       case SET_FOD_EN_TYPE:
+	if (fts_data->suspended && fts_data->gesture_support)
+		value |= FTS_REG_GESTURE_DOUBLETAP_ON;
         ret = fts_write_reg(addr, value);
         break;
       case SET_GAME_MODE_EN_TYPE:
@@ -4882,6 +4875,7 @@ static int fts_ts_suspend(struct device *dev)
 
 static int fts_ts_resume(struct device *dev)
 {
+	int ret;
 	/*u8 id = 0;*/
 	/*int i = 0;*/
 	struct fts_ts_data *ts_data = fts_data;
@@ -4894,10 +4888,13 @@ static int fts_ts_resume(struct device *dev)
 #ifndef CONFIG_FACTORY_BUILD
 #ifdef FTS_TOUCHSCREEN_FOD
 	FTS_INFO("%s finger_in_fod:%d fod_finger_skip:%d\n", __func__, ts_data->finger_in_fod, ts_data->fod_finger_skip);
-	if (!ts_data->finger_in_fod && !ts_data->fod_finger_skip) {
+	if (ts_data->poweroff_on_sleep ||
+	    (!ts_data->finger_in_fod && !ts_data->fod_finger_skip)) {
 		FTS_INFO("resume reset");
 		fts_reset_proc(40);
-		fts_recover_after_reset();
+		ret = fts_recover_after_reset();
+		if (ret)
+			goto err_resume;
 		fts_release_all_finger();
 	}
 #endif
@@ -4909,7 +4906,9 @@ static int fts_ts_resume(struct device *dev)
 #ifdef CONFIG_FACTORY_BUILD
 		gpio_direction_output(fts_data->pdata->reset_gpio, 1);
 		fts_reset_proc(40);
-		fts_recover_after_reset();
+		ret = fts_recover_after_reset();
+		if (ret)
+			goto err_resume;
 		fts_release_all_finger();
 #endif
 	}
@@ -4920,8 +4919,14 @@ static int fts_ts_resume(struct device *dev)
 		fts_write_reg(FTS_REG_CHARGER_MODE_EN, true);
 	if (ts_data->palm_sensor_switch)
 		fts_palm_on(ts_data, 1);
-	if (ts_data->gesture_support && !ts_data->poweroff_on_sleep)
-		fts_gesture_resume(ts_data);
+	if (ts_data->gesture_support && !ts_data->poweroff_on_sleep) {
+		ret = fts_gesture_resume(ts_data);
+		if (ret)
+			goto err_resume;
+	}
+	ret = fts_write_reg(FTS_REG_POWER_MODE, 0);
+	if (ret < 0)
+		goto err_resume;
 	fts_irq_enable();
 	ts_data->poweroff_on_sleep = false;
 #ifdef FTS_TOUCHSCREEN_FOD
@@ -4929,6 +4934,11 @@ static int fts_ts_resume(struct device *dev)
 #endif
 	FTS_FUNC_EXIT();
 	return 0;
+
+err_resume:
+	FTS_ERROR("touch resume failed: %d", ret);
+	ts_data->suspended = true;
+	return ret;
 }
 
 

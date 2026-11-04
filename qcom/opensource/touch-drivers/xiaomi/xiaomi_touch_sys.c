@@ -156,6 +156,29 @@ static ssize_t gesture_enable_store(struct xiaomi_tap_sensor *sensor,
 TAP_SENSOR_ATTRS(single_tap, single_tap_sensor);
 TAP_SENSOR_ATTRS(double_tap, double_tap_sensor);
 
+#ifdef TOUCH_FOD_SUPPORT
+static ssize_t fod_longpress_gesture_enabled_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%d\n", driver_get_touch_mode(TOUCH_ID, DATA_MODE_10) > 0);
+}
+
+static ssize_t fod_longpress_gesture_enabled_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	bool enabled;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+	ret = xiaomi_touch_set_gesture_mode(DATA_MODE_10, enabled);
+
+	return ret ? ret : count;
+}
+static DEVICE_ATTR_RW(fod_longpress_gesture_enabled);
+#endif
+
 static int analy_poll_data(char* poll_data_buf, char* buf)
 {
 	int count = 0;
@@ -766,6 +789,7 @@ static struct attribute *touch_attr_group[] = {
 	&dev_attr_gesture_single_tap_state.attr,
 	&dev_attr_gesture_single_tap_enabled.attr,
 #ifdef TOUCH_FOD_SUPPORT
+	&dev_attr_fod_longpress_gesture_enabled.attr,
 	&dev_attr_fod_press_status.attr,
 	&dev_attr_fod_test.attr,
 	&dev_attr_fod_attn_test.attr,
