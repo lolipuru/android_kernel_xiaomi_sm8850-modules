@@ -343,6 +343,8 @@ int update_stylus_connect_status_value(int value);
 int update_fod_press_status(int value);
 #endif
 struct class *get_xiaomi_touch_class(void);
+bool xiaomi_touch_report_gesture(u8 gesture_type);
+int xiaomi_touch_set_gesture_mode(enum common_data_mode mode, bool enabled);
 int update_palm_sensor_value(int value);
 int update_palm_sensor_value_second_panel(int value);
 int update_weak_doubletap_value(int value);

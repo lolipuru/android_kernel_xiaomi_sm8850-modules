@@ -69,6 +69,68 @@ static int vendor_input = 1;
 	static ssize_t store_##name(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)store_func \
 	static DEVICE_ATTR(name, (S_IRUGO | S_IWUSR | S_IWGRP), show_##name, store_##name);
 
+bool xiaomi_touch_report_gesture(u8 gesture_type)
+{
+	struct xiaomi_tap_sensor *sensor;
+	bool handled = false;
+
+	switch (gesture_type) {
+	default:
+		return false;
+	}
+
+	mutex_lock(&gesture_mutex);
+	if (sensor->enabled && xiaomi_touch_dev) {
+		WRITE_ONCE(sensor->state, true);
+		sysfs_notify(&xiaomi_touch_dev->kobj, NULL, sensor->state_node);
+		handled = true;
+	}
+	mutex_unlock(&gesture_mutex);
+
+	return handled;
+}
+EXPORT_SYMBOL_GPL(xiaomi_touch_report_gesture);
+
+static ssize_t gesture_enable_store(struct xiaomi_tap_sensor *sensor,
+				   const char *buf, size_t count)
+{
+	bool enabled;
+	int ret;
+
+	ret = kstrtobool(buf, &enabled);
+	if (ret)
+		return ret;
+
+	mutex_lock(&gesture_mutex);
+	ret = xiaomi_touch_set_gesture_mode(sensor->mode, enabled);
+	if (!ret) {
+		WRITE_ONCE(sensor->state, false);
+		WRITE_ONCE(sensor->enabled, enabled);
+	}
+	mutex_unlock(&gesture_mutex);
+
+	return ret ? ret : count;
+}
+
+#define TAP_SENSOR_ATTRS(name, sensor) \
+	static ssize_t gesture_##name##_state_show(struct device *dev, \
+			struct device_attribute *attr, char *buf) \
+	{ \
+		return sysfs_emit(buf, "%d\n", READ_ONCE(sensor.state)); \
+	} \
+	static DEVICE_ATTR_RO(gesture_##name##_state); \
+	static ssize_t gesture_##name##_enabled_show(struct device *dev, \
+			struct device_attribute *attr, char *buf) \
+	{ \
+		return sysfs_emit(buf, "%d\n", READ_ONCE(sensor.enabled)); \
+	} \
+	static ssize_t gesture_##name##_enabled_store(struct device *dev, \
+			struct device_attribute *attr, const char *buf, size_t count) \
+	{ \
+		return gesture_enable_store(&sensor, buf, count); \
+	} \
+	static DEVICE_ATTR_RW(gesture_##name##_enabled)
+
 static int analy_poll_data(char* poll_data_buf, char* buf)
 {
 	int count = 0;

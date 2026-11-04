@@ -642,6 +642,32 @@ static void xiaomi_touch_set_mode_value(common_data_t *common_data)
  * with others where not involving hardware.
  */
 static DEFINE_MUTEX(ioctl_operation_mutex);
+
+int xiaomi_touch_set_gesture_mode(enum common_data_mode mode, bool enabled)
+{
+	xiaomi_touch_data_t *data = get_xiaomi_touch_data(0);
+	xiaomi_touch_driver_param_t *param = get_xiaomi_touch_driver_param(0);
+	common_data_t common_data = { 0 };
+
+	if (mode != DATA_MODE_10 && mode != DATA_MODE_11 && mode != DATA_MODE_14)
+		return -EINVAL;
+	if (!data || !data->event_wq || !param ||
+	    !param->hardware_operation.ic_switch_mode)
+		return -ENODEV;
+
+	common_data.touch_id = 0;
+	common_data.cmd = SET_CUR_VALUE;
+	common_data.mode = mode;
+	common_data.data_len = 1;
+	common_data.data_buf[0] = enabled;
+
+	mutex_lock(&ioctl_operation_mutex);
+	xiaomi_touch_set_mode_value(&common_data);
+	mutex_unlock(&ioctl_operation_mutex);
+
+	return 0;
+}
+
 int xiaomi_touch_mode(private_data_t *client_private_data, u32 user_size, unsigned long arg)
 {
 	if (user_size != sizeof(common_data_t)) {
