@@ -872,8 +872,11 @@ static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 #endif
 #endif
 	of_node_put(node);
-	if (IS_ERR(xiaomi_touch_data->notifier_cookie)) {
-		LOG_ERROR("Failed to register for panel events");
+	if (IS_ERR_OR_NULL(xiaomi_touch_data->notifier_cookie)) {
+		LOG_ERROR("Failed to register for panel events: %ld",
+			xiaomi_touch_data->notifier_cookie ?
+			PTR_ERR(xiaomi_touch_data->notifier_cookie) : -ENODEV);
+		xiaomi_touch_data->notifier_cookie = NULL;
 	}
 }
 

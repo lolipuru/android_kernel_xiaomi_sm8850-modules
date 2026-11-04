@@ -4698,8 +4698,11 @@ if (ts_data->fts_tp_class == NULL) {
 	qts_vdata.vendor_data = ts_data;
 	qts_vdata.qts_vendor_ops = ts_data->vendor_ops;
 	qts_vdata.client_type = 0;
-
+#ifdef FTS_XIAOMI_TOUCHFEATURE
+	ret = qts_client_register_with_vendor_panel_events(&qts_vdata);
+#else
 	ret = qts_client_register(&qts_vdata);
+#endif
 	if (ret && debug_log_level) {
 		FTS_ERROR("qts_client_register fail\n");
 	}

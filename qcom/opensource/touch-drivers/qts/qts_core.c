@@ -1846,7 +1846,8 @@ static void qts_ts_register_for_panel_events(struct qts_data *qts_data)
 	qts_data->notifier_cookie = cookie;
 }
 
-int qts_client_register(struct qts_vendor_data *qts_vendor_data)
+static int __qts_client_register(struct qts_vendor_data *qts_vendor_data,
+		bool vendor_handles_panel_events)
 {
 	struct qts_data *qts_data;
 	struct device_node *dp;
@@ -1913,7 +1914,8 @@ int qts_client_register(struct qts_vendor_data *qts_vendor_data)
 		qts_create_sysfs(qts_data);
 
 	mutex_init(&qts_data->transition_lock);
-	qts_ts_register_for_panel_events(qts_data);
+	if (!vendor_handles_panel_events)
+		qts_ts_register_for_panel_events(qts_data);
 	qts_vendor_data->notifier_cookie = qts_data->notifier_cookie;
 
 #ifdef CONFIG_ARCH_QTI_VM
@@ -1940,7 +1942,17 @@ qts_register_end:
 	mutex_unlock(&qts_data_entries->qts_data_entries_lock);
 	return rc;
 }
+int qts_client_register(struct qts_vendor_data *qts_vendor_data)
+{
+	return __qts_client_register(qts_vendor_data, false);
+}
 EXPORT_SYMBOL(qts_client_register);
+
+int qts_client_register_with_vendor_panel_events(struct qts_vendor_data *qts_vendor_data)
+{
+	return __qts_client_register(qts_vendor_data, true);
+}
+EXPORT_SYMBOL_GPL(qts_client_register_with_vendor_panel_events);
 
 void qts_client_unregister(void)
 {

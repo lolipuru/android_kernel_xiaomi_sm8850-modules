@@ -49,6 +49,7 @@ struct qts_vendor_data {
 };
 
 int qts_client_register(struct qts_vendor_data *qts_vendor_data);
+int qts_client_register_with_vendor_panel_events(struct qts_vendor_data *qts_vendor_data);
 void qts_client_unregister(void);
 #ifdef CONFIG_ARCH_QTI_VM
 int qts_trusted_touch_mem_release(void *vendor_data);
