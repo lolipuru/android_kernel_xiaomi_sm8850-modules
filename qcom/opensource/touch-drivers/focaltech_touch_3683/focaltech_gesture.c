@@ -260,6 +260,8 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
         break;
 
     case GESTURE_DOUBLECLICK:
+	if (xiaomi_touch_report_gesture(GESTURE_DOUBLETAP_EVENT))
+		return;
 	gesture = KEY_WAKEUP;
 	break;
     case GESTURE_SINGLETAP:
