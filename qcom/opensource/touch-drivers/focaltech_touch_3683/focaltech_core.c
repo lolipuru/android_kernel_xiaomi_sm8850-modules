@@ -279,6 +279,27 @@ int fts_wait_tp_to_valid(void)
 	return -EIO;
 }
 
+static bool fts_valid_thp_report_rate(int rate)
+{
+	return rate == 68 || rate == 135 || rate == 240;
+}
+
+static int fts_set_thp_report_rate(struct fts_ts_data *ts_data, int rate)
+{
+	s32 value = rate;
+	int ret;
+
+	if (!fts_valid_thp_report_rate(rate))
+		return -EINVAL;
+
+	ret = fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &value, 2);
+	if (ret < 0)
+		return ret;
+
+	ts_data->report_rate_status = rate;
+	return 0;
+}
+
 /*****************************************************************************
 *  Name: fts_tp_state_recovery
 *  Brief: Need execute this function when reset
@@ -289,16 +310,16 @@ int fts_wait_tp_to_valid(void)
 void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 {
 	int ret = 0;
-	s32 report_rate_val = 0x87;
 	FTS_FUNC_ENTER();
 	fts_wait_tp_to_valid();
 	if (ts_data->charger_status)
 		fts_charger_on(ts_data, 1);
 	fts_gesture_recovery(ts_data);
-	if (ts_data->report_rate_status == 0x87) {
-		ret = fts_thp_ic_write_interfaces(0x13, &report_rate_val, 2);
-		if (ret < 0 && debug_log_level)
-			FTS_ERROR("fts_report_rate_recovery failed");
+	if (ts_data->enable_touch_raw &&
+	    fts_valid_thp_report_rate(ts_data->report_rate_status)) {
+		ret = fts_set_thp_report_rate(ts_data, ts_data->report_rate_status);
+		if (ret < 0)
+			FTS_ERROR("THP report rate recovery failed: %d", ret);
 	}
 	fts_update_touchmode_data(ts_data);
 	if (ts_data->gamemode_enabled)
@@ -353,7 +374,12 @@ int fts_recover_after_reset(void)
 	}
 #endif
 
-	if (fts_data->report_rate_status == 120) {
+	if (fts_data->enable_touch_raw &&
+	    fts_valid_thp_report_rate(fts_data->report_rate_status)) {
+		ret = fts_set_thp_report_rate(fts_data, fts_data->report_rate_status);
+		if (ret < 0)
+			FTS_ERROR("THP report rate recovery failed: %d", ret);
+	} else if (fts_data->report_rate_status == 120) {
 		FTS_INFO("report_rate = %d\n", fts_data->report_rate_status);
 		/*reset Report_Rate to 120HZ*/
 		if (fts_write_reg(0x92, 1) < 0) {
@@ -3266,8 +3292,17 @@ void fts_set_cur_value(int mode_input, int *value_input)
 	}
 
 	if (mode == DATA_MODE_73) {
-		fts_data->report_rate_status = value;
-		FTS_INFO("ic report rate skip write");
+		if (!fts_data->enable_touch_raw) {
+			fts_data->report_rate_status = value;
+		} else if (!fts_valid_thp_report_rate(value)) {
+			FTS_ERROR("Unsupported THP report rate: %d", value);
+		} else if (fts_data->suspended) {
+			fts_data->report_rate_status = value;
+		} else {
+			ret = fts_set_thp_report_rate(fts_data, value);
+			if (ret < 0)
+				FTS_ERROR("Failed to set THP report rate %d: %d", value, ret);
+		}
 		return;
 	}
 
