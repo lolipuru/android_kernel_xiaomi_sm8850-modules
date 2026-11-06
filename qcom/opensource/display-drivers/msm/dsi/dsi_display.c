@@ -1636,6 +1636,9 @@ int dsi_display_set_power(struct drm_connector *connector,
 
 		break;
 	case SDE_MODE_DPMS_OFF:
+		mi_disp_feature_event_notify_by_type(mi_get_disp_id(display->display_type),
+			MI_DISP_EVENT_POWER, sizeof(power_mode), power_mode);
+		fallthrough;
 	default:
 		return rc;
 	}
@@ -1644,8 +1647,11 @@ int dsi_display_set_power(struct drm_connector *connector,
 	DSI_DEBUG("Power mode transition from %d to %d %s",
 			display->panel->power_mode, power_mode,
 			rc ? "failed" : "successful");
-	if (!rc)
+	if (!rc) {
 		display->panel->power_mode = power_mode;
+		mi_disp_feature_event_notify_by_type(mi_get_disp_id(display->display_type),
+			MI_DISP_EVENT_POWER, sizeof(power_mode), power_mode);
+	}
 
 	return rc;
 }
