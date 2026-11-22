@@ -68,7 +68,8 @@ ddk_headers(
             "synaptics_tcm2/*.h",
             "synaptics_tcm2/tcm/*.h"
         ]
-    )
+    ),
+    includes = ["synaptics_tcm2", "synaptics_tcm2/tcm"]
 )
 
 ddk_headers(

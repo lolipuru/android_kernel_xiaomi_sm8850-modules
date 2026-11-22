@@ -197,6 +197,7 @@ def define_canoe(t,v):
             "focaltech_touch_3683",
             "goodix_ts",
             "st_fts",
+            "synaptics_tcm2",
             "qts",
             "xiaomi_touch",
         ],
@@ -211,6 +212,10 @@ def define_canoe(t,v):
             "CONFIG_TOUCHSCREEN_ST",
             "CONFIG_QTS_ENABLE",
             "CONFIG_TOUCHSCREEN_DUMMY",
+            "CONFIG_TOUCHSCREEN_SYNAPTICS_TCM2",
+            "CONFIG_TOUCHSCREEN_SYNA_TCM2_REFLASH",
+            "CONFIG_TOUCHSCREEN_SYNA_TCM2_SYSFS",
+            "CONFIG_TOUCHSCREEN_SYNA_TCM2_TESTING",
             "CONFIG_TOUCHSCREEN_XIAOMITOUCH",
             "TOUCH_THP_SUPPORT",
             "TOUCH_FOD_SUPPORT",
@@ -228,7 +233,7 @@ def define_art(t,v):
             "goodix_ts",
             "goodix_ts2",
             "st_fts",
-            "synaptics_tcm2_ts",
+            "synaptics_tcm2",
             "qts"
         ],
         config_options = [
@@ -255,7 +260,7 @@ def define_artvm(t,v):
             "goodix_ts",
             "st_fts",
             "focaltech_fts",
-            "synaptics_tcm2_ts",
+            "synaptics_tcm2",
             "qts"
         ],
         config_options = [

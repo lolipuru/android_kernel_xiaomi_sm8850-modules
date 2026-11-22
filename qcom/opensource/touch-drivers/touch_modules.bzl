@@ -120,22 +120,25 @@ module_entry(
 )
 
 
-#define ddk_module() for synaptics_tcm2_ts
+#define ddk_module() for synaptics_tcm2
 module_entry(
-    name = "synaptics_tcm2_ts",
+    name = "synaptics_tcm2",
     config_option = "CONFIG_TOUCHSCREEN_SYNAPTICS_TCM2",
     srcs = [
-			"synaptics_tcm2/syna_tcm2.c",
-			"synaptics_tcm2/syna_tcm2_platform_spi.c",
-			"synaptics_tcm2/syna_tcm2_sysfs.c",
-			"synaptics_tcm2/syna_tcm2_cdev.c",
-			"synaptics_tcm2/tcm/synaptics_touchcom_func_base.c",
-			"synaptics_tcm2/tcm/synaptics_touchcom_func_touch.c",
-			"synaptics_tcm2/tcm/synaptics_touchcom_core_v1.c",
-			"synaptics_tcm2/tcm/synaptics_touchcom_image_parsing.c",
-			"synaptics_tcm2/tcm/synaptics_touchcom_func_reflash.c"
+            "synaptics_tcm2/syna_tcm2.c",
+            "synaptics_tcm2/syna_tcm2_cdev.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_core_v1.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_core_v2.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_func_base.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_func_touch.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_func_reflash.c",
+            "synaptics_tcm2/tcm/synaptics_touchcom_func_romboot.c",
+            "synaptics_tcm2/syna_tcm2_platform_spi.c",
+            "synaptics_tcm2/syna_tcm2_sysfs.c",
+            "synaptics_tcm2/syna_tcm2_testing.c",
+            "synaptics_tcm2/syna_xiaomi_driver.c",
     ],
-    deps = ["qts"],
+    deps = ["xiaomi_touch"],
 )
 
 #define ddk_module() for atmel_mxt_ts

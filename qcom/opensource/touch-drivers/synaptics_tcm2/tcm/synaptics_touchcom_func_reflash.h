@@ -1,8 +1,8 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * Synaptics TouchComm C library
+/* SPDX-License-Identifier: GPL-2.0
  *
- * Copyright (C) 2017-2025 Synaptics Incorporated. All rights reserved.
+ * Synaptics TouchCom touchscreen driver
+ *
+ * Copyright (C) 2017-2020 Synaptics Incorporated. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,257 +27,123 @@
  * NOT PERMIT THE DISCLAIMER OF DIRECT DAMAGES OR ANY OTHER DAMAGES, SYNAPTICS'
  * TOTAL CUMULATIVE LIABILITY TO ANY PARTY SHALL NOT EXCEED ONE HUNDRED U.S.
  * DOLLARS.
- *
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
-
-/*
- * This file declares relevant functions and structures for Bootloader.
+/**
+ * @file synaptics_touchcom_func_reflash.h
+ *
+ * This file declares relevant functions and structures for TouchBoot.
  */
 
 #ifndef _SYNAPTICS_TOUCHCOM_REFLASH_FUNCS_H_
 #define _SYNAPTICS_TOUCHCOM_REFLASH_FUNCS_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
 #include "synaptics_touchcom_core_dev.h"
-#include "synaptics_touchcom_image_parsing.h"
+#include "synaptics_touchcom_func_base_flash.h"
+#include "../syna_tcm2.h"
 
-#define BOOT_CONFIG_SLOT_SIZE 8
+#define BOOT_CONFIG_SIZE 8
 #define BOOT_CONFIG_SLOTS 16
 
-/*
- * Requested Operations for Reflash
+/**
+ * @section: Blocks to be updated
  */
-enum update_operation {
-	UPDATE_NONE = 0x0000,
-	UPDATE_CONFIG = 0x0001,
-	UPDATE_CUSTOMER_SERIALIZATION = 0x0002,
-	UPDATE_LOCKDOWN = 0x0004,
-	UPDATE_FIRMWARE = 0x0008,
-	UPDATE_FIRMWARE_AND_CONFIG = 0x0009,
+enum update_area {
+	UPDATE_NONE = 0,
+	UPDATE_FIRMWARE_CONFIG,
+	UPDATE_CONFIG_ONLY,
+	UPDATE_ALL_BLOCKS,
 };
 
-/*
- * Standard API Definitions
+/**
+ * @section: Data Type in flash memory
  */
+enum flash_data {
+	FLASH_LCM_DATA = 1,
+	FLASH_OEM_DATA,
+	FLASH_PPDT_DATA,
+	FLASH_FORCE_CALIB_DATA,
+	FLASH_OPEN_SHORT_TUNING_DATA,
+};
 
-/*
- *  The extended entry function to perform firmware update by using the firmware image file.
+/**
+ * @section: Specific data blob for reflash
  *
- *  Please be noted there is no file parsing and ID comparison implemented in this function.
- *  Caller must provide the parsed image data before calling.
- *
- * param
- *    [ in] tcm_dev:                pointer to TouchComm device
- *    [ in] image:                  parsed data from image file
- *    [ in] op:                     requested operation
- *                                    use '0' in default, that updates both firmware and config
- *                                    otherwise, refer to the enumerated value of update_operation
- *    [ in] flash_erase_delay_ms:   set up the ms delay time to
- *                                  wait for the completion of flash access
- *                                    for polling,     set a positive value;
- *                                    for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *    [ in] flash_write_delay_us:   set up the us delay time to
- *                                  wait for the completion of flash access
- *                                    for polling,     set a positive value;
- *                                    for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *    [ in] fw_switch_delay_ms:     set up the ms delay time to
- *                                  wait for the completion of firmware switching
- *                                    for polling,     set a positive value;
- *                                    for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *    [ in] use_opt:                perform the optimized flash write operation if supported
- *                                    set 'True' if no quite sure.
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * The structure contains various parameters being used in reflash
  */
-int syna_tcm_do_fw_update_ex(struct tcm_dev *tcm_dev, struct image_info *image,
-	unsigned int op, unsigned int flash_erase_delay_ms, unsigned int flash_write_delay_us,
-	unsigned int fw_switch_delay_ms, bool use_opt);
+struct tcm_reflash_data_blob {
+	/* binary data of an image file */
+	const unsigned char *image;
+	unsigned int image_size;
+	/* parsed data based on given image file */
+	struct image_info image_info;
+	/* standard information for flash access */
+	unsigned int page_size;
+	unsigned int write_block_size;
+	unsigned int max_write_payload_size;
+	/* temporary buffer during the reflash */
+	struct tcm_buffer out;
+};
 
-/*
- *  The basic entry function to perform firmware update by using the firmware image file.
+/**
+ * syna_tcm_compare_image_id_info()
  *
- *  In this function, it intends to do file parsing and apply the default ID comparison method
- *  to determine the operation for reflash.
+ * Compare the ID information between device and the image file,
+ * and determine the area to be updated.
+ * The function should be called after parsing the image file.
  *
- *  If requiring to update the specific partition, please use syna_tcm_do_fw_update_ex() instead.
+ * @param
+ *    [ in] tcm_dev:      the device handle
+ *    [ in] reflash_data: data blob for reflash
  *
- * param
- *    [ in] tcm_dev:                pointer to TouchComm device
- *    [ in] image:                  binary data to write
- *    [ in] image_size:             size of data array
- *    [ in] flash_delay_settings:   set up the us delay time to
- *                                  wait for the completion of flash access for polling,
- *                                    set a value formatted with [erase ms | write us];
- *                                    for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *    [ in] force_reflash:         '1' to do reflash anyway
- *                                 '0' to compare ID info before doing reflash.
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    Comparison result
  */
-int syna_tcm_do_fw_update(struct tcm_dev *tcm_dev, const unsigned char *image,
-	unsigned int image_size, unsigned int delay_setting, bool force_reflash);
+int syna_tcm_compare_image_id_info(struct tcm_dev *tcm_dev,
+		struct tcm_reflash_data_blob *reflash_data);
 
-
-/*
- * API to access custom data
+/**
+ * syna_tcm_read_flash_area()
+ *
+ * Entry function to read in the data of specific area in the flash memory.
+ *
+ * @param
+ *    [ in] tcm_dev:      the device handle
+ *    [ in] area:         flash area to read
+ *    [out] data:         buffer storing the retrieved data
+ *    [ in] rd_delay_us:  delay time in micro-sec to read words data from flash.
+ *                        set '0' to use default time, which is 10 us;
+ *                        set 'FORCE_ATTN_DRIVEN' to adopt ATTN-driven.
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
  */
+int syna_tcm_read_flash_area(struct tcm_dev *tcm_dev,
+		enum flash_area area, struct tcm_buffer *rd_data,
+		unsigned int rd_delay_us);
 
- /*
-  *  Request to read out data from the appointed address in the flash memory.
-  *
-  * param
-  *    [ in] tcm_dev:       pointer to TouchComm device
-  *    [ in] address:       specify the flash address to read
-  *    [ in] length:        specify the size to read
-  *    [out] rd_data:       buffer storing the retrieved data
-  *    [ in] resp_reading:  method to read in the response
-  *                          a positive value presents the us time delay for the processing
-  *                          of each WORDs in the flash to read;
-  *                          or, set '0' or 'RESP_IN_ATTN' for ATTN driven
-  * return
-  *    0 or positive value in case of success, a negative value otherwise.
-  */
-int syna_tcm_read_flash_address(struct tcm_dev *tcm_dev, unsigned int address,
-	unsigned int length, struct tcm_buffer *rd_data, unsigned int resp_reading);
-
-/*
- *  Request to read out data block from the flash memory.
+/**
+ * syna_tcm_do_fw_update()
  *
- * param
- *    [ in] tcm_dev:       pointer to TouchComm device
- *    [ in] area:          flash area to read
- *    [out] rd_data:       buffer storing the retrieved data
- *    [ in] resp_reading:  method to read in the response
- *                          a positive value presents the us time delay for the processing
- *                          of each WORDs in the flash to read;
- *                          or, set '0' or 'RESP_IN_ATTN' for ATTN driven
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * The entry function to perform fw update upon TouchBoot.
+ *
+ * @param
+ *    [ in] tcm_dev:         the device handle
+ *    [ in] image:           image file given
+ *    [ in] image_size:      size of data array
+ *    [ in] wait_delay_ms:   a short delay time in millisecond to wait for
+ *                           the completion of flash access
+ *                           for polling, set a value formatted with
+ *                           [erase | write];
+ *                           for ATTN-driven, set a '0' or 'RESP_IN_ATTN'
+ *    [ in] force_reflash:   '1' to do reflash anyway
+ *                           '0' to compare ID info before doing reflash.
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
  */
-int syna_tcm_read_flash_area(struct tcm_dev *tcm_dev, enum flash_area area,
-	struct tcm_buffer *rd_data, unsigned int resp_reading);
-
-/*
- *   Request to update the lockdown config.
- *
- * param
- *    [ in] tcm_dev:               pointer to TouchComm device
- *    [ in] image:                 parsed data from image file
- *    [ in] flash_write_delay_us:  delay time to wait for the completion of flash write
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_update_lockdown_config(struct tcm_dev *tcm_dev, struct image_info *image,
-	unsigned int flash_write_delay_us);
-/*
- *   Request to write custom serialization area
- *
- * param
- *    [ in] tcm_dev:              pointer to TouchComm device
- *    [ in] cs_data:              custom serialization data to write
- *    [ in] cs_data_size:         size of requested data
- *    [ in] cs_offset:            the specified offset of address
- *                                set '0' in default
- *    [ in] flash_write_delay_us: delay time to wait for the completion of flash write
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_update_cs_config(struct tcm_dev *tcm_dev, unsigned char *cs_data,
-	unsigned int cs_data_size, unsigned int cs_offset, unsigned int flash_write_delay_us);
-/*
- *  Request to read custom serialization data
- *
- * param
- *    [ in] tcm_dev:               pointer to TouchComm device
- *    [out] cs_data:               buffer storing the custom serialization data
- *    [ in] cs_data_size:          size to read
- *    [ in] cs_offset:             the specified offset to read
- *                                 set '0' in default
- *    [ in] flash_read_delay_us:   delay time to wait for the completion of flash read
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_read_cs_data(struct tcm_dev *tcm_dev, unsigned char *cs_data,
-	unsigned int cs_data_size, unsigned int cs_offset, unsigned int flash_write_delay_us);
-/*
- *  Request to write custom MTP data
- *
- * param
- *    [ in] tcm_dev:               pointer to TouchComm device
- *    [ in] mtp_data:              customer data to write
- *    [ in] mtp_data_size:         size of customer data
- *    [ in] mtp_offset:            the specified offset of address
- *                                 set '0' in default
- *    [ in] flash_write_delay_us:  delay time to wait for the completion of flash write
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_update_mtp_data(struct tcm_dev *tcm_dev, unsigned char *mtp_data,
-	unsigned int mtp_data_size, unsigned int mtp_offset, unsigned int flash_write_delay_us);
-/*
- *  Request to read custom MTP data
- *
- * param
- *    [ in] tcm_dev:               pointer to TouchComm device
- *    [out] mtp_data:              buffer storing the customer data
- *    [ in] mtp_data_size:         size to read
- *    [ in] mtp_offset:            the specified offset to read
- *                                 set '0' in default
- *    [ in] flash_read_delay_us:   delay time to wait for the completion of flash read
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- *
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_read_mtp_data(struct tcm_dev *tcm_dev, unsigned char *mtp_data,
-	unsigned int mtp_data_size, unsigned int mtp_offset, unsigned int flash_read_delay_us);
-
-/*
- *   Request to erase the MTP (Multi Time Programming) area
- *
- * param
- *    [ in] tcm_dev:               pointer to TouchComm device
- *    [ in] flash_erase_delay_us:  delay time to wait for the completion of flash erase
- *                                   for polling,     set a positive value;
- *                                   for ATTN-driven, use '0' or 'RESP_IN_ATTN'
- * return
- *    positive value in case of success,
- *    0 if device has been locked already,
- *    a negative value otherwise.
- */
-int syna_tcm_erase_mtp_data(struct tcm_dev *tcm_dev, unsigned int flash_erase_delay_us);
-
-
-
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+int syna_tcm_do_fw_update(struct tcm_dev *tcm_dev,
+		const unsigned char *image, unsigned int image_size,
+		unsigned int wait_delay_ms, bool force_reflash);
 
 #endif /* end of _SYNAPTICS_TOUCHCOM_REFLASH_FUNCS_H_ */

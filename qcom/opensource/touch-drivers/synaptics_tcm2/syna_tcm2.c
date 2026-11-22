@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Synaptics TouchComm touchscreen driver
+ * Synaptics TouchCom touchscreen driver
  *
- * Copyright (C) 2017-2025 Synaptics Incorporated. All rights reserved.
+ * Copyright (C) 2017-2020 Synaptics Incorporated. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,35 +27,38 @@
  * NOT PERMIT THE DISCLAIMER OF DIRECT DAMAGES OR ANY OTHER DAMAGES, SYNAPTICS'
  * TOTAL CUMULATIVE LIABILITY TO ANY PARTY SHALL NOT EXCEED ONE HUNDRED U.S.
  * DOLLARS.
- *
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
-/*
+/**
+ * @file syna_tcm2.c
+ *
  * This file implements the Synaptics device driver running under Linux kernel
  * input device subsystem, and also communicate with Synaptics touch controller
  * through TouchComm command-response protocol.
  */
 
-#include <linux/spi/spi.h>
 #include "syna_tcm2.h"
-#include <linux/synaptics_tcm2/syna_tcm2_cdev.h>
+#include "syna_tcm2_cdev.h"
 #include "syna_tcm2_platform.h"
-#include "tcm/synaptics_touchcom_core_dev.h"
-#include "tcm/synaptics_touchcom_func_base.h"
-#include "tcm/synaptics_touchcom_func_touch.h"
-#ifdef REFLASH_DISCRETE_TOUCH
-#include "tcm/synaptics_touchcom_func_reflash.h"
+#include "synaptics_touchcom_core_dev.h"
+#include "synaptics_touchcom_func_base.h"
+#include "synaptics_touchcom_func_touch.h"
+#ifdef STARTUP_REFLASH
+#ifdef HAS_ROMBOOT_REFLASH_FEATURE
+#include "synaptics_touchcom_func_romboot.h"
+#else
+#include "synaptics_touchcom_func_reflash.h"
 #endif
-#ifdef REFLASH_TDDI
-#include "tcm/synaptics_touchcom_func_reflash_tddi.h"
 #endif
-
-#include "../qts/qts_core_common.h"
-#include <linux/soc/qcom/panel_event_notifier.h>
-
+#include "../xiaomi/xiaomi_touch.h"
+#include <uapi/linux/sched/types.h>
+/**
+ * @section: USE_CUSTOM_TOUCH_REPORT_CONFIG
+ *           Open if willing to set up the format of touch report.
+ *           The custom_touch_format[] array can be used to describe the
+ *           customized report format.
+ */
 #ifdef USE_CUSTOM_TOUCH_REPORT_CONFIG
-/* An example of the format of custom touch configuration  */
 static unsigned char custom_touch_format[] = {
 	/* entity code */                    /* bits */
 #ifdef ENABLE_WAKEUP_GESTURE
@@ -72,187 +75,263 @@ static unsigned char custom_touch_format[] = {
 };
 #endif
 
-#ifdef RESET_ON_RESUME
-/* The delayed time before issuing a reset if reset on resume is required */
-#define RESET_ON_RESUME_DELAY_MS (100)
+/**
+ * @section: STARTUP_REFLASH_DELAY_TIME_MS
+ *           The delayed time to start fw update during the startup time.
+ *           This configuration depends on STARTUP_REFLASH.
+ */
+#ifdef STARTUP_REFLASH
+#define STARTUP_REFLASH_DELAY_TIME_MS (200)
+
+#define FW_IMAGE_NAME "synaptics/firmware.img"
 #endif
 
-/* The delayed time when doing power mode switching */
-#define DEV_POWER_SWITCHING_DELAY_MS (100)
+/**
+ * @section: RESET_ON_RESUME_DELAY_MS
+ *           The delayed time to issue a reset on resume state.
+ *           This configuration depends on RESET_ON_RESUME.
+ */
+#ifdef RESET_ON_RESUME
+#define RESET_ON_RESUME_DELAY_MS (100)
+#endif
+#define RESET_ON_DELAY_MS (60)
 
-static int syna_ts_suspend_helper(void *data);
-static int syna_ts_resume_helper(void *data);
-static int syna_ts_enable_touch_irq(void *data, bool enable);
-static int syna_ts_get_irq_num(void *data);
-static int syna_ts_set_irq_num(void *data, int irq);
-static int syna_ts_pre_la_tui_enable(void *data);
-static int syna_ts_post_la_tui_enable(void *data);
-static int syna_ts_post_le_tui_enable(void *data);
-static int syna_ts_post_le_tui_disable(void *data);
-static irqreturn_t syna_irq_handler(int irq, void *data);
 
-#if defined(CONFIG_DRM)
-static struct drm_panel *active_panel;
-static void syna_panel_notifier_callback(enum panel_event_notifier_tag tag,
-		struct panel_event_notification *notification, void *client_data);
+/**
+ * @section: POWER_ALIVE_AT_SUSPEND
+ *           indicate that the power is still alive even at
+ *           system suspend.
+ *           otherwise, there is no power supplied when system
+ *           is going to suspend stage.
+ */
+#ifndef CONFIG_TOUCH_FACTORY_BUILD
+#define POWER_ALIVE_AT_SUSPEND
+#endif
 
-static int syna_register_for_panel_events(struct device_node *dp,
-					struct syna_tcm *tcm)
-{
-	void *cookie;
-
-	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
-			PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH, active_panel,
-			&syna_panel_notifier_callback, tcm);
-	if (IS_ERR(cookie)) {
-		LOGE("Failed to register for panel events\n");
-		return -EINVAL;
-	}
-
-	LOGI("Registered for panel notifications panel: 0x%pK\n", active_panel);
-
-	tcm->notifier_cookie = cookie;
-
-	return 0;
-}
-
-static int syna_check_dt(struct device_node *np)
-{
-	int i;
-	int count;
-	struct device_node *node;
-	struct drm_panel *panel;
-
-	count = of_count_phandle_with_args(np, "panel", NULL);
-	if (count <= 0)
-		return 0;
-
-	for (i = 0; i < count; i++) {
-		node = of_parse_phandle(np, "panel", i);
-		panel = of_drm_find_panel(node);
-		of_node_put(node);
-		if (!IS_ERR(panel)) {
-			active_panel = panel;
-			return 0;
-		}
-	}
-
-	return PTR_ERR(panel);
-}
+/**
+ * @section: global variables for an active drm panel
+ *           in order to register display notifier
+ */
+#ifdef USE_DRM_PANEL_NOTIFIER
+	struct drm_panel *active_panel;
+#endif
+static unsigned int pre_overlap = 0;
+static int fod_id = TOUCH_FOD_INVALID_ID;
+#ifdef TOUCH_SYNA_BOOTLOADER_RECOVERY
+static int inSuspendMode = 0;
+#ifdef POWER_ALIVE_AT_SUSPEND
+static int syna_dev_enter_lowpwr_sensing(struct syna_tcm *tcm);
+#endif
+static void syna_dev_free_input_events(struct syna_tcm *tcm);
 #endif
 
 #if defined(ENABLE_HELPER)
-/*
- * Example of the helper work.
- * Helper could run on the other context and send the secondary command to device.
+/**
+ * syna_dev_reset_detected_cb()
  *
- * param
+ * Callback to assign a task to helper thread.
+ *
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ *
+ * @param
+ *    [ in] callback_data: pointer to caller data
+ *
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
+ */
+static void syna_dev_reset_detected_cb(void *callback_data)
+{
+	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
+
+	if (!tcm->helper.workqueue) {
+		LOGW("No helper thread created\n");
+		return;
+	}
+	LOGI("Enter helper.task state:%d\n", ATOMIC_GET(tcm->helper.task));
+	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
+		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
+		queue_work(tcm->helper.workqueue, &tcm->helper.work);
+	}
+}
+/**
+ * syna_dev_helper_work()
+ *
+ * According to the given task, perform the delayed work
+ *
+ * @param
  *    [ in] work: data for work used
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static void syna_dev_helper_work(struct work_struct *work)
 {
+	int retval = 0;
+	int firmware_flashing = 0;
+	int doreflash = 0;
+	struct tcm_boot_info boot_info;
+	bool irq_disabled = true;
 	unsigned char task;
+
 	struct syna_tcm_helper *helper =
 			container_of(work, struct syna_tcm_helper, work);
 	struct syna_tcm *tcm =
 			container_of(helper, struct syna_tcm, helper);
-	int app_status;
 
 	task = ATOMIC_GET(helper->task);
 
 	switch (task) {
 	case HELP_RESET_DETECTED:
-		LOGD("Reset caught, and device stays in mode:0x%x\n", tcm->tcm_dev->dev_mode);
-
-	if (IS_BOOTLOADER_MODE(tcm->tcm_dev->dev_mode)) {
-		if (syna_tcm_get_boot_info(tcm->tcm_dev, NULL, CMD_RESPONSE_IN_POLLING) >= 0)
-			LOGI("Bootloader status: 0x%x (reset reason: 0x%x)\n",
-				tcm->tcm_dev->boot_info.status,
-				tcm->tcm_dev->boot_info.last_reset_reason);
-#ifdef FLASH_RECOVERY
-		queue_delayed_work(tcm->reflash_workqueue,
-			&tcm->reflash_work,
-			msecs_to_jiffies(100));
-#endif
-	}
-
-	if (IS_APP_FW_MODE(tcm->tcm_dev->dev_mode)) {
-		app_status = syna_pal_le2_to_uint(tcm->tcm_dev->app_info.status);
-		if (app_status != APP_STATUS_OK) {
-			LOGI("Bad app status: 0x%x\n", app_status);
-#ifdef FLASH_RECOVERY
-			queue_delayed_work(tcm->reflash_workqueue,
-				&tcm->reflash_work,
-				msecs_to_jiffies(100));
-#endif
-		} else {
-			LOGI("Re-configure the app fw due to reset\n");
-			tcm->dev_set_up_app_fw(tcm);
+		LOGI("syna_dev_helper_work dev_mode: %d\n", tcm->tcm_dev->dev_mode);
+		if (IS_BOOTLOADER_MODE(tcm->tcm_dev->dev_mode)) {
+			/* get boot info to set up the flash access */
+			retval = syna_tcm_get_boot_info(tcm->tcm_dev, &boot_info);
+			if (retval < 0) {
+				LOGE("Fail to get boot info at mode 0x%x\n", tcm->tcm_dev->dev_mode);
+				goto exit;
+			} else {
+				syna_tcm_print_boot_info(boot_info);
+				if (boot_info.status == 0xFE) {
+					doreflash = 1;
+					LOGE("syna_dev_helper_work  boot_info status:%x doreflash：%d\n", boot_info.status,doreflash);
+				}
+			}
 		}
-	}
 
+		if (doreflash == 1) {
+			firmware_flashing = ATOMIC_GET(tcm->tcm_dev->firmware_flashing);
+			LOGE("firmware_flashing: %d\n", firmware_flashing);
+			if (firmware_flashing == 0) {
+				LOGE("Start reflash fw\n");
+				if (tcm->tcm_dev->hw_if->ops_enable_irq) {
+					LOGE("force enable irq\n");
+					tcm->tcm_dev->hw_if->ops_enable_irq(tcm->hw_if, true);
+				}
+				syna_dev_reflash_startup(tcm, true);
+				if (inSuspendMode == 1) {
+					LOGE("restore suspend mode status\n");
+					/* clear all input events  */
+					syna_dev_free_input_events(tcm);
+#ifdef POWER_ALIVE_AT_SUSPEND
+					retval = syna_dev_enter_lowpwr_sensing(tcm);
+					if (retval < 0) {
+						LOGE("Fail to enter suspended power mode\n");
+						goto exit;
+					}
+					if (xiaomi_get_gesture_type(TOUCH_ID))
+						tcm->pwr_state = LOW_PWR;
+					else
+						tcm->pwr_state = PWR_OFF;
+#else
+						tcm->pwr_state = PWR_OFF;
+#endif
+						tcm->fod_finger = false;
+					irq_disabled = (!xiaomi_get_gesture_type(TOUCH_ID));
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+					irq_disabled = true;
+#endif
+					/* disable irq */
+					if (irq_disabled && (tcm->hw_if->ops_enable_irq)) {
+						tcm->hw_if->ops_enable_irq(tcm->hw_if, false);
+						if (tcm->irq_wake) {
+							disable_irq_wake(tcm->hw_if->bdata_attn.irq_id);
+							tcm->irq_wake = false;
+						}
+					}
+				}
+			}
+		}
 		break;
 	default:
 		break;
 	}
-
+exit:
 	ATOMIC_SET(helper->task, HELP_NONE);
 }
 #endif
-/*
- * Example to process the report resulted by the unexpected reset.
+
+#ifdef POWER_ALIVE_AT_SUSPEND
+/**
+ * syna_dev_enable_lowpwr_gesture()
  *
- * param
- *    [ in]    code:          the code of current touch entity
- *    [ in]    report:        touch report given
- *    [ in]    report_size:   size of given touch report
- *    [ in]    callback_data: private data being passed to the callback function
+ * Enable or disable the low power gesture mode.
+ * Furthermore, set up the wake-up irq.
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] tcm: tcm driver handle
+ *    [ in] en:  '1' to enable low power gesture mode; '0' to disable
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
-static int syna_dev_process_unexpected_reset(const unsigned char code,
-	const unsigned char *report, unsigned int report_size,
-	void *callback_data)
+static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
 {
-	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
+	int retval = 0;
+	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
 
-	if (!tcm) {
-		LOGE("Invalid data to process\n");
-		return -EINVAL;
-	}
-
-	if (tcm->pwr_state == PWR_OFF)
+	if (!xiaomi_get_gesture_type(TOUCH_ID) && en)
 		return 0;
 
-	LOGN("Device has been reset, may be the spontaneous reset\n");
+	if (attn->irq_id == 0)
+		return 0;
 
-#if defined(ENABLE_HELPER)
-	/* send the command through helper thread */
-	if (!tcm->helper.workqueue) {
-		LOGW("No helper thread created\n");
-		return -EINVAL;
+	if (en) {
+		if (!tcm->irq_wake) {
+			enable_irq_wake(attn->irq_id);
+			tcm->irq_wake = true;
+		}
+
+		/* enable wakeup gesture mode
+		 *
+		 * the wakeup gesture control may result from by finger event;
+		 * therefore, it's better to use ATTN driven mode here
+		 */
+		retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_WAKEUP_GESTURE_MODE,
+				1,
+				RESP_IN_ATTN);
+		if (retval < 0) {
+			LOGE("Fail to enable wakeup gesture via DC command\n");
+			return retval;
+		}
+	} else {
+		if (tcm->irq_wake) {
+			disable_irq_wake(attn->irq_id);
+			tcm->irq_wake = false;
+		}
+
+		/* disable wakeup gesture mode
+		 *
+		 * the wakeup gesture control may result from by finger event;
+		 * therefore, it's better to use ATTN driven mode here
+		 */
+		retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+				DC_ENABLE_WAKEUP_GESTURE_MODE,
+				0,
+				RESP_IN_ATTN);
+		if (retval < 0) {
+			LOGE("Fail to disable wakeup gesture via DC command\n");
+			return retval;
+		}
 	}
 
-	if (ATOMIC_GET(tcm->helper.task) == HELP_NONE) {
-		ATOMIC_SET(tcm->helper.task, HELP_RESET_DETECTED);
-		queue_work(tcm->helper.workqueue, &tcm->helper.work);
-	}
+	return retval;
+}
 #endif
 
-	return 0;
-}
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
-/*
- * Callback to parse the custom or non-standard touch entity from the touch report.
+/**
+ * syna_dev_parse_custom_touch_data_cb()
  *
- * Please be noted that this function will be invoked in ISR so don't issue another
- * touchcomm command here. If really needed, please assign a task to helper thread.
+ * Callback to parse the custom or non-standard touch entity from the
+ * touch report.
  *
- * param
+ * Please be noted that this function will be invoked in ISR so don't
+ * issue another touchcomm command here.
+ * If really needed, please assign a task to helper thread.
+ *
+ * @param
  *    [ in]    code:          the code of current touch entity
  *    [ in]    config:        the report configuration stored
  *    [in/out] config_offset: offset of current position in report config,
@@ -263,15 +342,15 @@ static int syna_dev_process_unexpected_reset(const unsigned char code,
  *    [ in]    report_size:   size of given touch report
  *    [ in]    callback_data: pointer to caller data passed to callback function
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0 or positive value; otherwise, negative value on error.
  */
 static int syna_dev_parse_custom_touch_data_cb(const unsigned char code,
-	const unsigned char *config, unsigned int *config_offset,
-	const unsigned char *report, unsigned int *report_offset,
-	unsigned int report_size, void *callback_data)
+		const unsigned char *config, unsigned int *config_offset,
+		const unsigned char *report, unsigned int *report_offset,
+		unsigned int report_size, void *callback_data)
 {
-	/*
+	/**
 	 * sample code to demonstrate how to parse the custom touch entity
 	 * from the touch report, additional modifications will be needed.
 	 *
@@ -282,11 +361,14 @@ static int syna_dev_parse_custom_touch_data_cb(const unsigned char code,
 	 * switch (code) {
 	 * case CUSTOM_ENTITY_CODE:
 	 *		bits = config[(*config_offset)++];
-	 *		syna_tcm_get_touch_data(report, report_size, *report_offset, bits, &data);
+	 *		syna_tcm_get_touch_data(report, report_size,
+	 *				*report_offset, bits, &data);
+	 *
 	 *		*report_offset += bits;
 	 *		return bits;
 	 *	default:
-	 *		LOGW("Unknown touch config code (idx:%d 0x%02x)\n", *config_offset, code);
+	 *		LOGW("Unknown touch config code (idx:%d 0x%02x)\n",
+	 *			*config_offset, code);
 	 *		return (-EINVAL);
 	 *	}
 	 *
@@ -295,15 +377,52 @@ static int syna_dev_parse_custom_touch_data_cb(const unsigned char code,
 	return (-EINVAL);
 }
 #endif
+void syna_touch_fod_down_event(struct syna_tcm *tcm, int fod_x, int fod_y, int fod_overlap, int fod_area)
+{
+	struct input_dev *input_dev = tcm->input_dev;
 
-/*
- * Release all queued touched events.
+	if (!tcm->fod_finger)
+		LOGI("FOD DOWN Detected\n");
+	update_fod_press_status(1);
+	tcm->fod_finger = true;
+	/*report input event*/
+	input_mt_slot(input_dev, TOUCH_FOD_ID);
+	input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, 1);
+	input_report_key(input_dev, BTN_TOUCH, 1);
+	input_report_key(input_dev, BTN_TOOL_FINGER, 1);
+	input_report_abs(input_dev, ABS_MT_POSITION_X, fod_x);
+	input_report_abs(input_dev, ABS_MT_POSITION_Y, fod_y);
+	input_report_abs(tcm->input_dev, ABS_MT_TOUCH_MAJOR, fod_overlap);
+	input_report_abs(tcm->input_dev, ABS_MT_TOUCH_MINOR, fod_area);
+	input_sync(input_dev);
+}
+
+void syna_touch_fod_up_event(struct syna_tcm *tcm)
+{
+	struct input_dev *input_dev = tcm->input_dev;
+
+	LOGI("FOD UP Detected, fod_id:%d\n", TOUCH_FOD_ID);
+	input_mt_slot(tcm->input_dev, TOUCH_FOD_ID);
+	input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, 0);
+	input_report_abs(tcm->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+	input_report_abs(tcm->input_dev, ABS_MT_TOUCH_MINOR, 0);
+	input_report_key(input_dev, BTN_TOUCH, 0);
+	input_report_key(input_dev, BTN_TOOL_FINGER, 0);
+	input_sync(tcm->input_dev);
+	update_fod_press_status(0);
+	tcm->fod_finger = false;
+}
+
+/**
+ * syna_tcm_free_input_events()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * Clear all relevant touched events.
  *
- * return
- *    void.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    none.
  */
 static void syna_dev_free_input_events(struct syna_tcm *tcm)
 {
@@ -314,7 +433,6 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 
 	if (input_dev == NULL)
 		return;
-
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
 #ifdef TYPE_B_PROTOCOL
@@ -330,78 +448,41 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 #endif
 	input_sync(input_dev);
 
-	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
-
-}
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-/*
- * Report knob events to the corresponding input subsystem.
- *
- * param
- *    [ in] tcm: pointer to the driver context
- *
- * return
- *    void.
- */
-static void syna_dev_report_input_knob_events(struct syna_tcm *tcm)
-{
-	struct input_dev *knob_dev;
-	struct tcm_touch_data_blob *touch_data;
-	struct tcm_knob_data_blob *knob_data;
-	int idx;
-
-	syna_pal_mutex_lock(&tcm->tp_event_mutex);
-
-	touch_data = &tcm->tp_data;
-
-	for (idx = 0; idx < MAX_NUM_KNOB_OBJECTS; idx++) {
-#ifndef HAVE_THE_SECOND_KNOB
-		if (idx > 0)
-			break;
-#endif
-		knob_dev = tcm->input_knob_dev[idx];
-		if (knob_dev == NULL)
-			continue;
-
-		knob_data = &touch_data->knob[idx];
-
-		if (knob_data->is_updated) {
-			input_report_key(knob_dev, BTN_WHEEL, knob_data->grasp);
-			if (knob_data->grasp)
-				input_report_abs(knob_dev, ABS_WHEEL, knob_data->angle);
-#ifndef TYPE_B_PROTOCOL
-			input_mt_sync(knob_dev);
-#endif
-			input_sync(knob_dev);
-		}
-
-		if (knob_data->is_clicked) {
-			input_report_key(knob_dev, BTN_SELECT, knob_data->click);
-#ifndef TYPE_B_PROTOCOL
-			input_mt_sync(knob_dev);
-#endif
-			input_sync(knob_dev);
-		}
+	/*
+		fingerprint AuthState 1 means wrong fingerprint, skip update fod press status
+	*/
+	if (tcm->fingerprint_authstate == 0) {
+		update_fod_press_status(0);
+		LOGD("fingerprint AuthState %d update_fod_press_status \n", tcm->fingerprint_authstate);
+	} else {
+		LOGI("fingerprint AuthState %d means wrong fingerprint, skip\n", tcm->fingerprint_authstate);
 	}
 
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
+
 }
-#endif
-/*
+
+/**
+ * syna_dev_report_input_events()
+ *
  * Report touched events to the input subsystem.
- * Assumes touch data, touch_data_blob and objects_data_blob, is populated.
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * After syna_tcm_get_event_data() function and the touched data is ready,
+ * this function can be called to report an input event.
  *
- * return
- *    void.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    none.
  */
+
 static void syna_dev_report_input_events(struct syna_tcm *tcm)
 {
 	unsigned int idx;
-	unsigned int x;
-	unsigned int y;
+	unsigned int x, fod_x;
+	unsigned int y, fod_y;
+	unsigned int fod_overlap, fod_area;
 	int wx;
 	int wy;
 	unsigned int status;
@@ -417,25 +498,51 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	syna_pal_mutex_lock(&tcm->tp_event_mutex);
 
 	touch_data = &tcm->tp_data;
-	object_data = &touch_data->object_data[0];
+	object_data = &tcm->tp_data.object_data[0];
 
 #ifdef ENABLE_WAKEUP_GESTURE
-	if ((tcm->pwr_state == LOW_PWR_GESTURE) && tcm->irq_wake) {
-		if (touch_data->gesture_id) {
-			LOGD("Gesture detected, id:%d\n",
-				touch_data->gesture_id);
-
+	fod_x = syna_pal_le2_to_uint(touch_data->gesture_data.x_pos);
+	fod_y = syna_pal_le2_to_uint(touch_data->gesture_data.y_pos);
+	fod_x *= xiaomi_get_super_resolution_factor();
+	fod_y *= xiaomi_get_super_resolution_factor();
+	fod_overlap = touch_data->gesture_data.area[0];
+	fod_area = touch_data->gesture_data.area[1];
+	LOGD("Gesture Event:%02x, Gesture Data:x:%4d, y:%4d, major:%2d, fod_overlap:%2d, fod_finger:%d\n",
+			touch_data->gesture_id, fod_x, fod_y,
+			touch_data->gesture_data.area[1], touch_data->gesture_data.area[0], tcm->fod_finger);
+	if (touch_data->gesture_id == GESTURE_TOUCH_AND_HOLD_DOWN_EVENT ||
+			touch_data->gesture_id == GESTURE_TOUCH_AND_HOLD_MOVE_EVENT) {
+		if ((xiaomi_get_gesture_type(TOUCH_ID) & GESTURE_LONGPRESS_EVENT) != 0) {
+			syna_touch_fod_down_event(tcm, fod_x, fod_y, fod_overlap, fod_area);
+		} else if (touch_data->gesture_id == GESTURE_TOUCH_AND_HOLD_DOWN_EVENT) {
+			LOGI("skip fod event because fod is not enabled\n");
+		}
+		goto exit;
+	} else if (touch_data->gesture_id == GESTURE_TOUCH_AND_HOLD_UP_EVENT) {
+		/* Todo: add customer FOD action. */
+		if (tcm->fod_finger) {
+			syna_touch_fod_up_event(tcm);
+		}
+		goto exit;
+	}
+	if ((tcm->pwr_state == LOW_PWR) && tcm->irq_wake) {
+		if (touch_data->gesture_id == GESTURE_ID_DOUBLE_TAP) {
+			LOGI("Double TAP Detected\n");
 			input_report_key(input_dev, KEY_WAKEUP, 1);
 			input_sync(input_dev);
 			input_report_key(input_dev, KEY_WAKEUP, 0);
 			input_sync(input_dev);
+		} else if (touch_data->gesture_id == GESTURE_ID_SINGLE_TAP) {
+			LOGI("Single TAP Detected\n");
+			input_report_key(input_dev, KEY_GOTO, 1);
+			input_sync(input_dev);
+			input_report_key(input_dev, KEY_GOTO, 0);
+			input_sync(input_dev);
 		}
 	}
 #endif
-
-	if ((tcm->pwr_state == LOW_PWR) || (tcm->pwr_state == LOW_PWR_GESTURE))
+	if (tcm->pwr_state == LOW_PWR)
 		goto exit;
-
 	touch_count = 0;
 
 	for (idx = 0; idx < max_objects; idx++) {
@@ -457,9 +564,10 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 		case GLOVED_OBJECT:
 			x = object_data[idx].x_pos;
 			y = object_data[idx].y_pos;
+			x *= xiaomi_get_super_resolution_factor();
+			y *= xiaomi_get_super_resolution_factor();
 			wx = object_data[idx].x_width;
 			wy = object_data[idx].y_width;
-
 #ifdef REPORT_SWAP_XY
 			x = x ^ y;
 			y = x ^ y;
@@ -482,10 +590,23 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 			input_report_abs(input_dev, ABS_MT_POSITION_Y, y);
 #ifdef REPORT_TOUCH_WIDTH
 			input_report_abs(input_dev,
-					ABS_MT_TOUCH_MAJOR, MAX(wx, wy));
+					ABS_MT_TOUCH_MAJOR, MAX_DATA(wx, wy));
 			input_report_abs(input_dev,
-					ABS_MT_TOUCH_MINOR, MIN(wx, wy));
+					ABS_MT_TOUCH_MINOR, MIN_DATA(wx, wy));
 #endif
+			if (tcm->fod_finger) {
+				if ((x == fod_x) && (y == fod_y)) {
+					fod_id = idx;
+				}
+			}
+			if (fod_id == idx && tcm->fod_finger) {
+				if (pre_overlap == fod_overlap)
+					fod_overlap++;
+				input_report_abs(tcm->input_dev, ABS_MT_WIDTH_MINOR,
+					fod_overlap);
+				input_report_abs(tcm->input_dev, ABS_MT_WIDTH_MAJOR,
+					touch_data->gesture_data.area[1]);
+			}
 #ifndef TYPE_B_PROTOCOL
 			input_mt_sync(input_dev);
 #endif
@@ -495,7 +616,6 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 		default:
 			break;
 		}
-
 		tcm->prev_obj_status[idx] = object_data[idx].status;
 	}
 
@@ -510,170 +630,36 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	input_sync(input_dev);
 
 exit:
+	if (tcm->fod_finger)
+		pre_overlap = fod_overlap;
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 
 }
-/*
- * Process the touch report.
+
+/**
+ * syna_dev_create_input_device()
  *
- * param
- *    [ in]    code:          the report type in the given report
- *    [ in]    report:        report data
- *    [ in]    report_size:   size of the given report
- *    [ in]    callback_data: private data being passed to the callback function
- *
- * return
- *    on success, 0 or positive value; otherwise, negative value on error.
- */
-static int syna_dev_process_touch_report(const unsigned char code,
-	const unsigned char *report, unsigned int report_size,
-	void *callback_data)
-{
-	int retval;
-	struct syna_tcm *tcm = (struct syna_tcm *)callback_data;
-
-	if (!tcm) {
-		LOGE("Invalid callback data\n");
-		return -EINVAL;
-	}
-
-	if (code != REPORT_TOUCH) {
-		LOGE("Invalid report to process, report:%d\n", code);
-		return -EINVAL;
-	}
-
-	/* not report to input device subsystem if the cdev interface is in used */
-	if ((tcm->char_dev_ref_count > 0) && !tcm->concurrent_reporting)
-		return 0;
-
-	/* parse touch report once received */
-	retval = syna_tcm_parse_touch_report(tcm->tcm_dev,
-			(unsigned char *)report,
-			report_size,
-			&tcm->tp_data);
-	if (retval < 0) {
-		LOGE("Fail to parse touch report\n");
-		return retval;
-	}
-	/* report the touch event to system */
-	syna_dev_report_input_events(tcm);
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-	/* report the knob event to system */
-	syna_dev_report_input_knob_events(tcm);
-#endif
-	return 0;
-}
-
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-/*
- * Allocate an input device for knob and set up relevant parameters
- * to the input subsystem.
- *
- * param
- *    [ in] tcm: pointer to the driver context
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
- */
-static int syna_dev_create_input_knob_device(struct syna_tcm *tcm)
-{
-	int retval = 0;
-	int idx = 0;
-#ifdef DEV_MANAGED_API
-	struct device *dev;
-#endif
-
-#ifdef DEV_MANAGED_API
-	dev = syna_request_managed_device();
-
-	if (!dev) {
-		LOGE("Invalid managed device\n");
-		return -EINVAL;
-	}
-#endif
-
-	for (idx = 0; idx < MAX_NUM_KNOB_OBJECTS; idx++) {
-#ifndef HAVE_THE_SECOND_KNOB
-		if (idx > 0)
-			break;
-#endif
-		if (tcm->input_knob_dev[idx]) {
-			input_unregister_device(tcm->input_knob_dev[idx]);
-			tcm->input_knob_dev[idx] = NULL;
-		}
-
-#ifdef DEV_MANAGED_API
-		tcm->input_knob_dev[idx] = devm_input_allocate_device(dev);
-#else /* Legacy API */
-		tcm->input_knob_dev[idx] = input_allocate_device();
-#endif
-		if (tcm->input_knob_dev[idx] == NULL) {
-			LOGE("Fail to allocate input device %d for knob\n", idx);
-			break;
-		}
-
-		tcm->input_knob_dev[idx]->name = KNOB_INPUT_NAME;
-		tcm->input_knob_dev[idx]->phys = KNOB_INPUT_PHYS_PATH;
-		tcm->input_knob_dev[idx]->id.product = SYNAPTICS_TCM_DRIVER_ID;
-		tcm->input_knob_dev[idx]->id.version = SYNAPTICS_TCM_DRIVER_VERSION;
-		tcm->input_knob_dev[idx]->dev.parent = tcm->pdev->dev.parent;
-		input_set_drvdata(tcm->input_knob_dev[idx], tcm);
-
-		input_set_capability(tcm->input_knob_dev[idx], EV_KEY, BTN_SELECT);
-		input_set_capability(tcm->input_knob_dev[idx], EV_KEY, BTN_WHEEL);
-		input_set_capability(tcm->input_knob_dev[idx], EV_ABS, ABS_WHEEL);
-
-		input_set_abs_params(tcm->input_knob_dev[idx], ABS_WHEEL, 0, 32, 0, 0);
-
-		retval = input_register_device(tcm->input_knob_dev[idx]);
-		if (retval < 0) {
-			LOGE("Fail to register input device for knob\n");
-			input_free_device(tcm->input_knob_dev[idx]);
-			tcm->input_knob_dev[idx] = NULL;
-			return retval;
-		}
-	}
-
-	return 0;
-}
-/*
- * Release the input device for knob allocated previously.
- *
- * param
- *    [ in] tcm: pointer to the driver context
- *
- * return
- *    void.
- */
-static void syna_dev_release_input_knob_device(struct syna_tcm *tcm)
-{
-	int idx = 0;
-
-	for (idx = 0; idx < MAX_NUM_KNOB_OBJECTS; idx++) {
-#ifndef HAVE_THE_SECOND_KNOB
-		if (idx > 0)
-			break;
-#endif
-		if (tcm->input_knob_dev[idx]) {
-			input_unregister_device(tcm->input_knob_dev[idx]);
-			tcm->input_knob_dev[idx] = NULL;
-		}
-	}
-}
-#endif
-
-/*
  * Allocate an input device and set up relevant parameters to the
  * input subsystem.
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * @param
+ *    [ in] tcm: the driver handle
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_create_input_device(struct syna_tcm *tcm)
 {
+#if 1
+	struct tcm_dev *tcm_dev = tcm->tcm_dev;
+	struct input_dev *input_dev = register_xiaomi_input_dev(TOUCH_ID,
+		xiaomi_get_x_resolution() * xiaomi_get_super_resolution_factor() - 1,
+		xiaomi_get_y_resolution() * xiaomi_get_super_resolution_factor() - 1, SYNA_PRI);
+	input_set_drvdata(input_dev, tcm);
+	tcm->input_dev_params.max_x = tcm_dev->max_x;
+	tcm->input_dev_params.max_y = tcm_dev->max_y;
+	tcm->input_dev_params.max_objects = tcm_dev->max_objects;
+#else
 	int retval = 0;
 	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 	struct input_dev *input_dev = NULL;
@@ -698,16 +684,7 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 	input_dev->phys = TOUCH_INPUT_PHYS_PATH;
 	input_dev->id.product = SYNAPTICS_TCM_DRIVER_ID;
 	input_dev->id.version = SYNAPTICS_TCM_DRIVER_VERSION;
-	/*
-	 * In TVM mode tcm->pdev->dev.parent is a virtual platform device,
-	 * so the input device would be registered under
-	 * /devices/platform/input/inputN instead of under the SPI bus path.
-	 * Use hw_if->pdev (the SPI device) as parent when available.
-	 */
-	if (tcm->hw_if && tcm->hw_if->pdev)
-		input_dev->dev.parent = &((struct spi_device *)tcm->hw_if->pdev)->dev;
-	else
-		input_dev->dev.parent = tcm->pdev->dev.parent;
+	input_dev->dev.parent = &tcm->pdev->dev;
 	input_set_drvdata(input_dev, tcm);
 
 	set_bit(EV_SYN, input_dev->evbit);
@@ -722,16 +699,23 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 #ifdef ENABLE_WAKEUP_GESTURE
 	set_bit(KEY_WAKEUP, input_dev->keybit);
 	input_set_capability(input_dev, EV_KEY, KEY_WAKEUP);
+	set_bit(KEY_GOTO, input_dev->keybit);
+	input_set_capability(input_dev, EV_KEY, KEY_GOTO);
 #endif
 
-	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, tcm_dev->max_x, 0, 0);
-	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, tcm_dev->max_y, 0, 0);
+	input_set_abs_params(input_dev,
+			ABS_MT_POSITION_X, 0, xiaomi_get_x_resolution() * xiaomi_get_super_resolution_factor() - 1, 0, 0);
+	input_set_abs_params(input_dev,
+			ABS_MT_POSITION_Y, 0, xiaomi_get_y_resolution() * xiaomi_get_super_resolution_factor() - 1, 0, 0);
 
-	input_mt_init_slots(input_dev, tcm_dev->max_objects, INPUT_MT_DIRECT);
+	input_mt_init_slots(input_dev, tcm_dev->max_objects,
+			INPUT_MT_DIRECT);
 
 #ifdef REPORT_TOUCH_WIDTH
-	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
-	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+	input_set_abs_params(input_dev,
+			ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(input_dev,
+			ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
 #endif
 
 	tcm->input_dev_params.max_x = tcm_dev->max_x;
@@ -745,122 +729,138 @@ static int syna_dev_create_input_device(struct syna_tcm *tcm)
 		input_dev = NULL;
 		return retval;
 	}
-
+#endif
 	tcm->input_dev = input_dev;
+	if (!input_dev) {
+		LOGE("Fail to register input device\n");
+		return -ENODEV;
+	}
 
 	return 0;
 }
-/*
- * Release the input device allocated previously.
+
+/**
+ * syna_dev_release_input_device()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * Release an input device allocated previously.
  *
- * return
- *    void.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    none.
  */
 static void syna_dev_release_input_device(struct syna_tcm *tcm)
 {
 	if (!tcm->input_dev)
 		return;
-
+#if 1
+	unregister_xiaomi_input_dev(TOUCH_ID);
+#else
 	input_unregister_device(tcm->input_dev);
-
+#endif
 	tcm->input_dev = NULL;
 }
-/*
- * Check whether it's need to register the new input device
- * if any of parameters has been changed.
+
+/**
+ * syna_dev_check_input_params()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * Check if any of the input parameters registered to the input subsystem
+ * has changed.
  *
- * return
- *    true if parameters are mismatched, false otherwise.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    positive value to indicate mismatching parameters; otherwise, return 0.
  */
-static bool syna_dev_check_input_params(struct syna_tcm *tcm)
+/*
+static int syna_dev_check_input_params(struct syna_tcm *tcm)
 {
 	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 
 	if (tcm_dev->max_x == 0 && tcm_dev->max_y == 0)
-		return false;
+		return 0;
 
 	if (tcm->input_dev_params.max_x != tcm_dev->max_x)
-		return true;
+		return 1;
 
 	if (tcm->input_dev_params.max_y != tcm_dev->max_y)
-		return true;
+		return 1;
 
 	if (tcm->input_dev_params.max_objects != tcm_dev->max_objects)
-		return true;
+		return 1;
 
 	if (tcm_dev->max_objects > MAX_NUM_OBJECTS) {
 		LOGW("Out of max num objects defined, in app_info: %d\n",
 			tcm_dev->max_objects);
-		return false;
+		return 0;
 	}
 
-	LOGN("Input parameters non-changed\n");
-	return false;
-}
+	LOGN("Input parameters unchanged\n");
 
-/*
- * Check and prepare input relevant setup.
+	return 0;
+}
+*/
+/**
+ * syna_dev_set_up_input_device()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * Set up input device to the input subsystem by confirming the supported
+ * parameters and creating the device.
  *
- * return
- *    0 in case of success, a negative value otherwise.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_set_up_input_device(struct syna_tcm *tcm)
 {
-	int retval;
+	int retval = 0;
 
 	if (IS_NOT_APP_FW_MODE(tcm->tcm_dev->dev_mode)) {
-		LOGN("Application firmware not running, current mode: %02x\n",
+		LOGN("Application firmware not running, current mode: %02x, still register input device\n",
 			tcm->tcm_dev->dev_mode);
-		return 0;
 	}
 
 	syna_dev_free_input_events(tcm);
 
-	if (syna_dev_check_input_params(tcm)) {
-		syna_pal_mutex_lock(&tcm->tp_event_mutex);
+	syna_pal_mutex_lock(&tcm->tp_event_mutex);
+	/*
+	retval = syna_dev_check_input_params(tcm);
+	if (retval == 0)
+		goto exit;
 
-		if (tcm->input_dev != NULL)
-			syna_dev_release_input_device(tcm);
+	if (tcm->input_dev != NULL)
+		syna_dev_release_input_device(tcm);
+	*/
 
-		retval = syna_dev_create_input_device(tcm);
-		if (retval < 0) {
-			LOGE("Fail to create input device\n");
-			syna_pal_mutex_unlock(&tcm->tp_event_mutex);
-			return retval;
-		}
-
-		syna_pal_mutex_unlock(&tcm->tp_event_mutex);
+	/* ensure input device will be registered */
+	retval = syna_dev_create_input_device(tcm);
+	if (retval < 0) {
+		LOGE("Fail to create input device\n");
+		goto exit;
 	}
 
-	retval = syna_tcm_set_report_dispatcher(tcm->tcm_dev,
-			REPORT_TOUCH, syna_dev_process_touch_report, (void *)tcm);
-	if (retval < 0)
-		LOGE("Fail to register the touch report handling function\n");
+exit:
+	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 
-	return 0;
+	return retval;
 }
 
-/*
- * Interrupt handling routine.
+/**
+ * syna_dev_isr()
  *
- * Triggered when the device asserts an interrupt.
- * Reads and processes the event generated by the device.
+ * This is the function to be called when the interrupt is asserted.
+ * The purposes of this handler is to read events generated by device and
+ * retrieve all enqueued messages until ATTN is no longer asserted.
  *
- * param
- *    [ in] irq:  IRQ number
+ * @param
+ *    [ in] irq:  interrupt line
  *    [ in] data: private data being passed to the handler function
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static irqreturn_t syna_dev_isr(int irq, void *data)
 {
@@ -868,12 +868,33 @@ static irqreturn_t syna_dev_isr(int irq, void *data)
 	unsigned char code = 0;
 	struct syna_tcm *tcm = data;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
+	static struct task_struct *touch_task = NULL;
+	struct sched_param par = { .sched_priority = MAX_RT_PRIO - 1};
+	s64 irq_start_time = ktime_get();
+
+	if (touch_task == NULL) {
+		touch_task = current;
+		sched_setscheduler_nocheck(touch_task, SCHED_FIFO, &par);
+	}
+
+#if defined(TOUCH_PLATFORM_XRING)
+	cpu_latency_qos_add_request(&tcm->pm_qos_req_irq, 0);
+
+#ifdef CONFIG_TRUSTED_TOUCH_XRING
+	mutex_lock(&g_xring_tui_mutex);
+	if (xiaomi_driver_data.tui_process) {
+		mutex_unlock(&g_xring_tui_mutex);
+		cpu_latency_qos_remove_request(&tcm->pm_qos_req_irq);
+		LOGE("Touch in TUI status, stop handling!\n");
+		return IRQ_HANDLED;
+	}
+#endif
+#endif //TOUCH_PLATFORM_XRING
 
 	if (unlikely(gpio_get_value(attn->irq_gpio) != attn->irq_on_state))
 		goto exit;
 
 	tcm->isr_pid = current->pid;
-
 	/* retrieve the original report date generated by firmware */
 	retval = syna_tcm_get_event_data(tcm->tcm_dev,
 			&code,
@@ -883,18 +904,59 @@ static irqreturn_t syna_dev_isr(int irq, void *data)
 		goto exit;
 	}
 
+	tcm->is_attn_asserted = true;
+
+#ifdef ENABLE_EXTERNAL_FRAME_PROCESS
+	if (tcm->report_to_queue[code] == EFP_ENABLE) {
+		syna_tcm_buf_lock(&tcm->tcm_dev->external_buf);
+		syna_cdev_update_report_queue(tcm, code,
+		    &tcm->tcm_dev->external_buf);
+		syna_tcm_buf_unlock(&tcm->tcm_dev->external_buf);
+#ifndef REPORT_CONCURRENTLY
+		goto exit;
+#endif
+	}
+#endif
+#ifdef TOUCH_THP_SUPPORT
+	if (tcm->enable_touch_raw && (tcm->pwr_state == PWR_ON) && (code == REPORT_THP))
+		syna_tcm_report_thp_frame(tcm, irq_start_time);
+#endif
+	/* report input event only when receiving a touch report */
+	if (code == REPORT_TOUCH) {
+		/* parse touch report once received */
+		retval = syna_tcm_parse_touch_report(tcm->tcm_dev,
+				tcm->event_data.buf,
+				tcm->event_data.data_length,
+				&tcm->tp_data);
+		if (retval < 0) {
+			LOGE("Fail to parse touch report\n");
+			goto exit;
+		}
+		/* forward the touch event to system */
+		syna_dev_report_input_events(tcm);
+	}
+
 exit:
+#ifdef CONFIG_TRUSTED_TOUCH_XRING
+	mutex_unlock(&g_xring_tui_mutex);
+#endif
+#if defined(TOUCH_PLATFORM_XRING)
+	cpu_latency_qos_remove_request(&tcm->pm_qos_req_irq);
+#endif
 	return IRQ_HANDLED;
 }
 
-/*
- * Request IRQ and register the interrupt handling routine.
+
+/**
+ * syna_dev_request_irq()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * Allocate an interrupt line and register the ISR handler
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_request_irq(struct syna_tcm *tcm)
 {
@@ -923,15 +985,15 @@ static int syna_dev_request_irq(struct syna_tcm *tcm)
 			attn->irq_id,
 			NULL,
 			syna_dev_isr,
-			attn->irq_flags | IRQF_ONESHOT,
-			PLATFORM_DRIVER_NAME,
+			attn->irq_flags,
+			"xiaomi_tp" PLATFORM_DRIVER_NAME,
 			tcm);
 #else /* Legacy API */
 	retval = request_threaded_irq(attn->irq_id,
 			NULL,
 			syna_dev_isr,
-			attn->irq_flags | IRQF_ONESHOT,
-			PLATFORM_DRIVER_NAME,
+			attn->irq_flags,
+			"xiaomi_tp" PLATFORM_DRIVER_NAME,
 			tcm);
 #endif
 	if (retval < 0) {
@@ -947,18 +1009,19 @@ exit:
 	return retval;
 }
 
-/*
+/**
+ * syna_dev_release_irq()
+ *
  * Release an interrupt line allocated previously
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * @param
+ *    [ in] tcm: the driver handle
  *
- * return
- *    void.
+ * @return
+ *    none.
  */
 static void syna_dev_release_irq(struct syna_tcm *tcm)
 {
-	struct tcm_hw_platform *hw = &tcm->hw_if->hw_platform;
 	struct syna_hw_attn_data *attn = &tcm->hw_if->bdata_attn;
 #ifdef DEV_MANAGED_API
 	struct device *dev = syna_request_managed_device();
@@ -972,11 +1035,11 @@ static void syna_dev_release_irq(struct syna_tcm *tcm)
 	if (attn->irq_id <= 0)
 		return;
 
-	if (hw->ops_enable_attn)
-		hw->ops_enable_attn(hw, false);
+	if (tcm->hw_if->ops_enable_irq)
+		tcm->hw_if->ops_enable_irq(tcm->hw_if, false);
 
 #ifdef DEV_MANAGED_API
-	disable_irq(attn->irq_id);
+	devm_free_irq(dev, attn->irq_id, tcm);
 #else
 	free_irq(attn->irq_id, tcm);
 #endif
@@ -987,32 +1050,25 @@ static void syna_dev_release_irq(struct syna_tcm *tcm)
 	LOGI("Interrupt handler released\n");
 }
 
-/*
- * Initialization including the preparation of app info and the
- * configuration of touch report.
+/**
+ * syna_dev_set_up_app_fw()
  *
- * param
+ * Implement the essential steps for the initialization including the
+ * preparation of app info and the configuration of touch report.
+ *
+ * This function should be called whenever the device initially powers
+ * up, resets, or firmware update.
+ *
+ * @param
  *    [ in] tcm: tcm driver handle
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_set_up_app_fw(struct syna_tcm *tcm)
 {
 	int retval = 0;
-	struct tcm_dev *tcm_dev;
-	struct syna_hw_attn_data *attn;
-	unsigned int resp_handling;
-
-	if (!tcm)
-		return -EINVAL;
-
-	tcm_dev = tcm->tcm_dev;
-	attn = &tcm->hw_if->bdata_attn;
-	if (attn && (attn->irq_id) && (attn->irq_enabled))
-		resp_handling = CMD_RESPONSE_IN_ATTN;
-	else
-		resp_handling = tcm_dev->msg_data.command_polling_time;
+	struct tcm_dev *tcm_dev = tcm->tcm_dev;
 
 	if (IS_NOT_APP_FW_MODE(tcm_dev->dev_mode)) {
 		LOGN("Application firmware not running, current mode: %02x\n",
@@ -1021,25 +1077,24 @@ static int syna_dev_set_up_app_fw(struct syna_tcm *tcm)
 	}
 
 	/* collect app info containing most of sensor information */
-	retval = syna_tcm_get_app_info(tcm_dev, &tcm_dev->app_info, resp_handling);
+	retval = syna_tcm_get_app_info(tcm_dev, &tcm_dev->app_info);
 	if (retval < 0) {
 		LOGE("Fail to get application info\n");
 		return retval;
 	}
 
-#ifdef USE_CUSTOM_TOUCH_REPORT_CONFIG
 	/* set up the format of touch report */
+#ifdef USE_CUSTOM_TOUCH_REPORT_CONFIG
 	retval = syna_tcm_set_touch_report_config(tcm_dev,
 			custom_touch_format,
-			(unsigned int)sizeof(custom_touch_format),
-			resp_handling);
+			(unsigned int)sizeof(custom_touch_format));
 	if (retval < 0) {
 		LOGE("Fail to setup the custom touch report format\n");
 		return retval;
 	}
 #endif
 	/* preserve the format of touch report */
-	retval = syna_tcm_preserve_touch_report_config(tcm_dev, resp_handling);
+	retval = syna_tcm_preserve_touch_report_config(tcm_dev);
 	if (retval < 0) {
 		LOGE("Fail to preserve touch report config\n");
 		return retval;
@@ -1048,7 +1103,8 @@ static int syna_dev_set_up_app_fw(struct syna_tcm *tcm)
 #ifdef ENABLE_CUSTOM_TOUCH_ENTITY
 	/* set up custom touch data parsing method */
 	retval = syna_tcm_set_custom_touch_entity_callback(tcm_dev,
-			syna_dev_parse_custom_touch_data_cb, tcm);
+			syna_dev_parse_custom_touch_data_cb,
+			(void *)tcm);
 	if (retval < 0) {
 		LOGE("Fail to set up custom touch data parsing method\n");
 		return retval;
@@ -1057,99 +1113,67 @@ static int syna_dev_set_up_app_fw(struct syna_tcm *tcm)
 	return 0;
 }
 
-
-#if defined(REFLASH_DISCRETE_TOUCH) || defined(REFLASH_TDDI)
-/*
- * Helper to perform firmware update.
- *
- * param
- *    [ in] tcm:   tcm driver handle
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
- */
-int syna_dev_do_reflash(struct syna_tcm *tcm, bool force)
+#ifdef STARTUP_REFLASH
+void syna_dev_reflash_startup(struct syna_tcm *tcm, bool force_reflash)
 {
 	int retval;
+	struct tcm_dev *tcm_dev;
 	const struct firmware *fw_entry = NULL;
 	const unsigned char *fw_image = NULL;
 	unsigned int fw_image_size;
-	struct tcm_dev *tcm_dev;
-
-	if (!tcm)
-		return -EINVAL;
+	int i = 0, retry = 3;
+	struct spi_device *spi = (struct spi_device *)tcm->hw_if->pdev;
 
 	tcm_dev = tcm->tcm_dev;
+	retval = pm_runtime_get_sync(spi->controller->dev.parent);
+	if (retval < 0) {
+		LOGE("Fail to failed to get sync, retval = %d\n", retval);
+	} else {
+		LOGI("support sensorhub,get sync ready\n");
+	}
 
 	/* get firmware image */
 	retval = request_firmware(&fw_entry,
-			FW_IMAGE_NAME,
-			tcm->pdev->dev.parent);
+			xiaomi_get_firmware_image_name(),
+			&tcm->pdev->dev);
 	if (retval < 0) {
-		LOGE("Fail to request %s\n", FW_IMAGE_NAME);
-		return retval;
+		LOGE("Fail to request %s\n", xiaomi_get_firmware_image_name());
+		goto exit;
 	}
 
 	fw_image = fw_entry->data;
 	fw_image_size = fw_entry->size;
 
 	LOGD("Firmware image size = %d\n", fw_image_size);
-
-#ifdef REFLASH_TDDI
-	retval = syna_tcm_tddi_do_fw_update(tcm_dev,
-			fw_image,
-			fw_image_size,
-			CMD_RESPONSE_IN_ATTN,
-			force,
-			tcm->is_tddi_multichip);
-#else
-	retval = syna_tcm_do_fw_update(tcm_dev,
-			fw_image,
-			fw_image_size,
-			CMD_RESPONSE_IN_ATTN,
-			force);
-#endif
-	if (retval < 0)
-		LOGE("Fail to do reflash\n");
-
-	LOGI("Firmware mode %02X after reflash\n", tcm_dev->dev_mode);
-
-	release_firmware(fw_entry);
-	fw_entry = NULL;
-	fw_image = NULL;
-
-	return retval;
-}
-#if defined(STARTUP_REFLASH) || defined(FLASH_RECOVERY)
-/*
- * Example to perform firmware update at the system startup.
- *
- * param
- *    [ in] work: handle of work structure
- *
- * return
- *    void.
- */
-static void syna_dev_reflash_startup_work(struct work_struct *work)
-{
-	int retval;
-	struct delayed_work *delayed_work;
-	struct syna_tcm *tcm;
-
-	delayed_work = container_of(work, struct delayed_work, work);
-	tcm = container_of(delayed_work, struct syna_tcm, reflash_work);
-
-	syna_pal_completion_wait_for(&tcm->init_completed, 1000);
-	if (!tcm->init_done) {
-		LOGE("Initialization not completed yet\n");
-		return;
-	}
-
 	pm_stay_awake(&tcm->pdev->dev);
-
-	retval = syna_dev_do_reflash(tcm, false);
-	if (retval < 0)
+	for (i = 0; i < retry; i++) {
+		/* perform fw update */
+#ifdef MULTICHIP_DUT_REFLASH
+		/* do firmware update for the multichip-based device */
+		retval = syna_tcm_romboot_do_multichip_reflash(tcm_dev,
+				fw_image,
+				fw_image_size,
+				RESP_IN_ATTN,
+				force_reflash);
+#else
+		/* do firmware update for the common device */
+		retval = syna_tcm_do_fw_update(tcm_dev,
+				fw_image,
+				fw_image_size,
+				RESP_IN_ATTN,
+				force_reflash);
+#endif
+		if (retval < 0) {
+			LOGE("Fail to do reflash,retry:%d\n", i);
+		} else {
+			LOGI("Success to do reflash\n");
+			break;
+		}
+	}
+	if (retval < 0) {
+		LOGE("Fail to do reflash\n");
 		goto exit;
+	}
 
 	/* re-initialize the app fw */
 	retval = syna_dev_set_up_app_fw(tcm);
@@ -1158,207 +1182,477 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 		goto exit;
 	}
 
+exit:
 	/* ensure the settings of input device
 	 * if needed, re-create a new input device
 	 */
 	retval = syna_dev_set_up_input_device(tcm);
 	if (retval < 0) {
 		LOGE("Fail to register input device\n");
-		goto exit;
 	}
-exit:
+
+	fw_image = NULL;
+
+	if (fw_entry) {
+		release_firmware(fw_entry);
+		fw_entry = NULL;
+	}
+
 	pm_relax(&tcm->pdev->dev);
-}
-#endif /* end of defined(STARTUP_REFLASH) || defined(FLASH_RECOVERY) */
-#endif
-
-#if defined(LOW_POWER_MODE)
-/*
- * Enable or disable the low power gesture mode.
- *
- * param
- *    [ in] tcm:           tcm driver handle
- *    [ in] en:            '1' to enable low power gesture mode; '0' to disable
- *    [ in] resp_handling: set up the handling of response to command
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
- */
-static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en,
-	unsigned int resp_handling)
-{
-	int retval = 0;
-	unsigned short config;
-	struct syna_hw_attn_data *attn;
-
-	if (!tcm)
-		return -EINVAL;
-
-	attn = &tcm->hw_if->bdata_attn;
-
-	if (!tcm->lpwg_enabled)
-		return 0;
-
-	if (en) {
-		if (!tcm->irq_wake) {
-			enable_irq_wake(attn->irq_id);
-			tcm->irq_wake = true;
-		}
-		config = 1;
-	} else {
-		if (tcm->irq_wake) {
-			disable_irq_wake(attn->irq_id);
-			tcm->irq_wake = false;
-		}
-		config = 0;
-	}
-
-	retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
-			DC_ENABLE_WAKEUP_GESTURE_MODE,
-			config,
-			resp_handling);
+	retval = pm_runtime_put_sync(spi->controller->dev.parent);
 	if (retval < 0) {
-		LOGE("Fail to %s wakeup gesture via dynamic config command\n",
-			(en) ? "enable" : "disable");
-		return retval;
+		LOGE("Fail to failed to put sync, retval = %d\n", retval);
+	} else {
+		LOGI("support sensorhub,put sync ready\n");
 	}
-
-	return retval;
 }
-/*
- * Enter normal sensing mode
+/**
+ * syna_dev_reflash_startup_work()
  *
- * param
+ * Perform firmware update during system startup.
+ * Function is available when the 'STARTUP_REFLASH' configuration
+ * is enabled.
+ *
+ * @param
+ *    [ in] work: handle of work structure
+ *
+ * @return
+ *    none.
+ */
+static void syna_dev_reflash_startup_work(struct work_struct *work)
+{
+	struct delayed_work *delayed_work;
+	struct syna_tcm *tcm;
+
+	delayed_work = container_of(work, struct delayed_work, work);
+	tcm = container_of(delayed_work, struct syna_tcm, reflash_work);
+	syna_dev_reflash_startup(tcm, false);
+
+	LOGI("After reflash, Firmware: %d Cfg: %02x %02x",
+			tcm->tcm_dev->packrat_number,
+			tcm->tcm_dev->app_info.customer_config_id[6] - 48,
+			tcm->tcm_dev->app_info.customer_config_id[7] - 48);
+}
+#endif
+#if defined(POWER_ALIVE_AT_SUSPEND)
+/**
+ * syna_dev_enter_normal_sensing()
+ *
+ * Helper to enter normal sensing mode
+ *
+ * @param
  *    [ in] tcm: tcm driver handle
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_enter_normal_sensing(struct syna_tcm *tcm)
 {
 	int retval = 0;
-	struct syna_hw_attn_data *attn;
-	struct tcm_dev *tcm_dev;
-	unsigned int resp_handling;
 
 	if (!tcm)
 		return -EINVAL;
 
-	tcm_dev = tcm->tcm_dev;
-	attn = &tcm->hw_if->bdata_attn;
-	if ((attn->irq_id) && (attn->irq_enabled))
-		resp_handling = CMD_RESPONSE_IN_ATTN;
-	else
-		resp_handling = tcm_dev->msg_data.command_polling_time;
-
-	/* disable low power gesture mode, if needed */
-	if (tcm->pwr_state == LOW_PWR_GESTURE) {
-		retval = syna_dev_enable_lowpwr_gesture(tcm, false, resp_handling);
-		if (retval < 0) {
-			LOGE("Fail to disable low power gesture mode\n");
-			return retval;
-		}
-
-		syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
-	}
-
-	/* exit sleep mode. */
-	retval = syna_tcm_sleep(tcm->tcm_dev, false, resp_handling);
+	/* bring out of sleep mode. */
+	retval = syna_tcm_sleep(tcm->tcm_dev, false);
 	if (retval < 0) {
 		LOGE("Fail to exit deep sleep\n");
 		return retval;
+	} else {
+		LOGI("exit deep sleep\n");
 	}
-
-	syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
+	/* disable low power gesture mode, if needed */
+	retval = syna_dev_enable_lowpwr_gesture(tcm, false);
+	if (retval < 0) {
+		LOGE("Fail to disable low power gesture mode\n");
+		return retval;
+	} else {
+		LOGI("exit gesture mode\n");
+	}
 
 	return 0;
 }
-/*
- * Enter low-power saving mode, that could be lower power gesture
- * mode or deep sleep mode.
+#endif
+#ifdef POWER_ALIVE_AT_SUSPEND
+/**
+ * syna_dev_enter_lowpwr_sensing()
  *
- * param
+ * Helper to enter power-saved sensing mode, that
+ * may be the lower power gesture mode or deep sleep mode.
+ *
+ * @param
  *    [ in] tcm: tcm driver handle
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_enter_lowpwr_sensing(struct syna_tcm *tcm)
 {
 	int retval = 0;
-	struct syna_hw_attn_data *attn;
-	struct tcm_dev *tcm_dev;
-	unsigned int resp_handling;
+	u8 val;
 
 	if (!tcm)
 		return -EINVAL;
 
-	tcm_dev = tcm->tcm_dev;
-	attn = &tcm->hw_if->bdata_attn;
-	if ((attn->irq_id) && (attn->irq_enabled))
-		resp_handling = CMD_RESPONSE_IN_ATTN;
-	else
-		resp_handling = tcm_dev->msg_data.command_polling_time;
-
-	if (tcm->pwr_state == PWR_ON) {
-		/* enable low power gesture mode */
-		if (tcm->lpwg_enabled) {
-			retval = syna_dev_enable_lowpwr_gesture(tcm, true, resp_handling);
-			if (retval < 0) {
-				LOGE("Fail to disable low power gesture mode\n");
-				return retval;
-			}
-
-			syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
-			tcm->pwr_state = LOW_PWR_GESTURE;
+	/* enter power saved mode if power is not off */
+	val = xiaomi_get_gesture_type(TOUCH_ID);
+	if (val < 0) {
+		LOGE("get geture type error\n");
+		return -EIO;
+	}
+	/* enable low power gesture mode, if needed */
+	if (val) {
+		retval = syna_tcm_set_gesture_type(tcm, val);
+		if (retval < 0) {
+			LOGE("set gesture type error\n");
+			return retval;
+		}
+		retval = syna_dev_enable_lowpwr_gesture(tcm, true);
+		if (retval < 0) {
+			LOGE("Fail to disable low power gesture mode\n");
+			return retval;
 		} else {
-		/* enter low power mode */
-			retval = syna_tcm_sleep(tcm->tcm_dev, true, resp_handling);
+			LOGI("enter low power gesture mode\n");
+		}
+	} else {
+	/* enter sleep mode for non-LPWG cases */
+		if (!tcm->slept_in_early_suspend) {
+			retval = syna_tcm_sleep(tcm->tcm_dev, true);
 			if (retval < 0) {
 				LOGE("Fail to enter deep sleep\n");
 				return retval;
 			}
-
-			syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
-			tcm->pwr_state = LOW_PWR;
 		}
 	}
 
+	return 0;
+}
+#endif
+/**
+ * syna_dev_resume()
+ *
+ * Resume from the suspend state.
+ * If RESET_ON_RESUME is defined, a reset is issued to the touch controller.
+ * Otherwise, the touch controller is brought out of sleep mode.
+ *
+ * @param
+ *    [ in] dev: an instance of device
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_dev_resume(struct device *dev)
+{
+	int retval;
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+	struct syna_hw_interface *hw_if = tcm->hw_if;
+	struct syna_hw_pct_data *pct;
+	unsigned char status = 0;
+#ifdef POWER_ALIVE_AT_SUSPEND
+	int time;
+#endif
+	pct = &tcm->hw_if->bdata_pct;
+	/* exit directly if device isn't in suspend state */
+#ifdef TOUCH_SYNA_BOOTLOADER_RECOVERY
+	inSuspendMode = 0;
+#endif
+	if (tcm->pwr_state == PWR_ON)
+		return 0;
+
+	LOGI("Prepare to resume device\n");
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+	if (pct->pinctrl) {
+		retval =
+		    pinctrl_select_state(pct->pinctrl,
+					 pct->pinctrl_state_active);
+		if (retval < 0)
+			LOGE("Failed to select %s pinstate %d\n", PINCTRL_STATE_ACTIVE, retval);
+	} else
+		LOGE("Failed to init pinctrl\n");
+		/* power on */
+	if (hw_if->ops_power_on) {
+		retval = hw_if->ops_power_on(hw_if, true);
+		if (retval < 0) {
+			LOGE("power on in resume failed\n");
+			return -ENODEV;
+		}
+	}
+	tcm->fod_finger = false;
+#endif
+	/* for screen freezing test */
+	if (tcm->doze_test == true) {
+		LOGI("touch doze resume in\n");
+		if (pct->pinctrl) {
+			retval =
+		 	   pinctrl_select_state(pct->pinctrl,
+						 pct->pinctrl_state_active);
+			if (retval < 0)
+				LOGE("Failed to select %s pinstate %d\n", PINCTRL_STATE_ACTIVE, retval);
+		} else
+			LOGE("Failed to init pinctrl\n");
+			/* power on */
+		if (hw_if->ops_power_on) {
+			retval = hw_if->ops_power_on(hw_if, true);
+			if (retval < 0) {
+				LOGE("power on in resume failed\n");
+				return -ENODEV;
+			}
+		}
+	}
+
+	if (!tcm->fod_finger) {
+		LOGI("Do reset on resume\n");
+		syna_pal_sleep_ms(RESET_ON_RESUME_DELAY_MS);
+		if (hw_if->ops_hw_reset) {
+			/*if irq enabled,event will be read by isr which makes get_event_data error,*/
+			hw_if->ops_enable_irq(hw_if, false);
+			hw_if->ops_hw_reset(hw_if, RESET_ON_DELAY_MS);
+			retval = syna_tcm_get_event_data(tcm->tcm_dev, &status, NULL);
+			LOGI("free input events after hw reset\n");
+			syna_dev_free_input_events(tcm);
+			tcm->fod_finger = false;
+			if ((retval < 0) || (status != REPORT_IDENTIFY)) {
+				LOGE("Fail to complete hw reset, retval = %d, status = 0x%x \n", retval, status);
+				retval = syna_tcm_reset(tcm->tcm_dev);
+				if (retval < 0) {
+					LOGE("Fail to do sw reset\n");
+				}
+				retval = -EIO;
+				goto exit;
+			}
+			hw_if->ops_enable_irq(hw_if, true);
+		} else {
+			retval = syna_tcm_reset(tcm->tcm_dev);
+			if (retval < 0) {
+				LOGE("Fail to do sw reset\n");
+				goto exit;
+			}
+		}
+	} else {
+#ifdef POWER_ALIVE_AT_SUSPEND
+		/* enter normal power mode */
+		for (time = 0; time < 3; time++) {
+			retval = syna_dev_enter_normal_sensing(tcm);
+			if (retval < 0) {
+				LOGE("Fail to enter normal power mode, retry = %d \n", time);
+			} else {
+				LOGI("enter normal power mode\n");
+				break;
+			}
+		}
+		if (time == 3) {
+			LOGE("have tried 3 times, Fail to enter normal power mode,clear buufer and retry\n");
+			syna_tcm_get_event_data(tcm->tcm_dev, &status, NULL);
+			retval = syna_dev_enter_normal_sensing(tcm);
+			if (retval < 0) {
+				LOGE("Fail to enter normal power mode\n");
+				goto exit;
+			} else {
+				LOGI("enter normal power mode\n");
+			}
+		}
+#endif
+	}
+#ifdef REZERO_ON_RESUME
+	retval = syna_tcm_rezero(tcm->tcm_dev);
+	if (retval < 0) {
+		LOGE("Fail to rezero\n");
+		goto exit;
+	}
+#endif
+	tcm->pwr_state = PWR_ON;
+
+	LOGI("Prepare to set up application firmware\n");
+
+	/* enable irq */
+	hw_if->ops_enable_irq(hw_if, true);
+	/* set up app firmware */
+	retval = syna_dev_set_up_app_fw(tcm);
+	if (retval < 0) {
+		LOGE("Fail to set up app firmware on resume\n");
+		goto exit;
+	}
+#ifdef TOUCH_THP_SUPPORT
+	if (tcm->enable_touch_raw == 0)
+		syna_tcm_enable_touch_raw(0);
+#endif
+	retval = 0;
+	LOGI("Device resumed (pwr_state:%d)\n", tcm->pwr_state);
+
+exit:
+	tcm->slept_in_early_suspend = false;
+	tcm->pwr_state = PWR_ON;
+	/* enable irq when exit with error*/
+	hw_if->ops_enable_irq(hw_if, true);
 	return retval;
 }
-#endif  /* end of LOW_POWER_MODE */
+
+/**
+ * syna_dev_suspend()
+ *
+ * Put device into suspend state.
+ * Enter either the lower power gesture mode or sleep mode.
+ *
+ * @param
+ *    [ in] dev: an instance of device
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
+ */
+static int syna_dev_suspend(struct device *dev)
+{
+	int retval;
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+	struct syna_hw_interface *hw_if = tcm->hw_if;
+	struct syna_hw_pct_data *pct;
+	bool irq_disabled = true;
+
+	pct = &tcm->hw_if->bdata_pct;
+	/* exit directly if device is already in suspend state */
+	if (tcm->pwr_state != PWR_ON)
+		return 0;
+
+	LOGI("Prepare to suspend device\n");
+#ifdef TOUCH_SYNA_BOOTLOADER_RECOVERY
+	inSuspendMode = 1;
+#endif
+
+	/* clear all input events  */
+	syna_dev_free_input_events(tcm);
+
+#ifdef POWER_ALIVE_AT_SUSPEND
+	retval = syna_dev_enter_lowpwr_sensing(tcm);
+	if (retval < 0) {
+		LOGE("Fail to enter suspended power mode\n");
+		tcm->pwr_state = PWR_OFF;
+		return retval;
+	}
+	if (xiaomi_get_gesture_type(TOUCH_ID))
+		tcm->pwr_state = LOW_PWR;
+	else
+		tcm->pwr_state = PWR_OFF;
+#else
+	tcm->pwr_state = PWR_OFF;
+#endif
+	tcm->fod_finger = false;
+
+	/* once lpwg is enabled, irq should be alive.
+	 * otherwise, disable irq in suspend.
+	 */
+	irq_disabled = (!xiaomi_get_gesture_type(TOUCH_ID));
+
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+	irq_disabled = true;
+#endif
+	/* disable irq */
+	if (irq_disabled && (hw_if->ops_enable_irq)) {
+		hw_if->ops_enable_irq(hw_if, false);
+		if (tcm->irq_wake) {
+			disable_irq_wake(hw_if->bdata_attn.irq_id);
+			tcm->irq_wake = false;
+		}
+	}
+
+#ifdef CONFIG_TOUCH_FACTORY_BUILD
+	if (pct->pinctrl) {
+		retval =
+			pinctrl_select_state(pct->pinctrl,
+					 pct->pinctrl_state_suspend);
+		if (retval < 0)
+			LOGE("Failed to select %s pinstate %d\n", PINCTRL_STATE_SUSPEND, retval);
+	} else
+		LOGE("Failed to init pinctrl\n");
+	/* power off */
+	if (hw_if->ops_power_on) {
+		retval = hw_if->ops_power_on(hw_if, false);
+		if (retval < 0) {
+			LOGE("power off in suspend failed\n");
+			return -ENODEV;
+		}
+	}
+#endif
+	/* for screen freezing test */
+	if (tcm->doze_test == true) {
+		if (pct->pinctrl) {
+			retval =
+				pinctrl_select_state(pct->pinctrl,
+						 pct->pinctrl_state_suspend);
+			if (retval < 0)
+				LOGE("Failed to select %s pinstate %d\n", PINCTRL_STATE_SUSPEND, retval);
+		} else
+			LOGE("Failed to init pinctrl\n");
+		/* power off */
+		if (hw_if->ops_power_on) {
+			retval = hw_if->ops_power_on(hw_if, false);
+			if (retval < 0) {
+				LOGE("power off in suspend failed\n");
+				return -ENODEV;
+			}
+		}
+	}
+	LOGI("Device suspended (pwr_state:%d)\n", tcm->pwr_state);
+
+	return 0;
+}
+
 #if defined(ENABLE_DISP_NOTIFIER)
-#if defined(USE_FB)
-/*
- * Receive the early suspend event from the display.
+/**
+ * syna_dev_early_suspend()
  *
- * param
- *    [ in] dev: pointer to device
+ * If having early suspend support, enter the sleep mode for
+ * non-lpwg cases.
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] dev: an instance of device
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_early_suspend(struct device *dev)
 {
-	return tcm->dev_suspend(dev);
+	int retval;
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+
+	/* exit directly if device is already in suspend state */
+	if (tcm->pwr_state != PWR_ON)
+		return 0;
+
+	if (!xiaomi_get_gesture_type(TOUCH_ID)) {
+		retval = syna_tcm_sleep(tcm->tcm_dev, true);
+		if (retval < 0) {
+			LOGE("Fail to enter deep sleep\n");
+			return retval;
+		}
+	}
+
+	tcm->slept_in_early_suspend = true;
+
+	return 0;
 }
-/*
- * Catch the screen on/off event from display.
+/**
+ * syna_dev_fb_notifier_cb()
  *
- * param
- *    [ in] nb:     pointer to notifier_block
+ * Listen the display screen on/off event and perform the corresponding
+ * actions.
+ *
+ * @param
+ *    [ in] nb:     instance of notifier_block
  *    [ in] action: fb action
- *    [ in] data:   private data for callback
+ *    [ in] data:   fb event data
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
-static int syna_dev_disp_notifier_cb(struct notifier_block *nb,
-	unsigned long action, void *data)
+static int syna_dev_fb_notifier_cb(struct notifier_block *nb,
+		unsigned long action, void *data)
 {
 	int retval;
 	int transition;
+#if defined(USE_DRM_PANEL_NOTIFIER)
+	struct drm_panel_notifier *evdata = data;
+#else
 	struct fb_event *evdata = data;
+#endif
 	struct syna_tcm *tcm = container_of(nb, struct syna_tcm, fb_notifier);
 	int time = 0;
 	int disp_blank_powerdown;
@@ -1371,10 +1665,17 @@ static int syna_dev_disp_notifier_cb(struct notifier_block *nb,
 
 	retval = 0;
 
+#if defined(USE_DRM_PANEL_NOTIFIER)
+	disp_blank_powerdown = DRM_PANEL_BLANK_POWERDOWN;
+	disp_early_event_blank = DRM_PANEL_EARLY_EVENT_BLANK;
+	disp_blank = DRM_PANEL_EVENT_BLANK;
+	disp_blank_unblank = DRM_PANEL_BLANK_UNBLANK;
+#else
 	disp_blank_powerdown = FB_BLANK_POWERDOWN;
 	disp_early_event_blank = FB_EARLY_EVENT_BLANK;
 	disp_blank = FB_EVENT_BLANK;
 	disp_blank_unblank = FB_BLANK_UNBLANK;
+#endif
 
 	transition = *(int *)evdata->data;
 
@@ -1397,17 +1698,17 @@ static int syna_dev_disp_notifier_cb(struct notifier_block *nb,
 		retval = syna_dev_early_suspend(&tcm->pdev->dev);
 	} else if (action == disp_blank) {
 		if (transition == disp_blank_powerdown) {
-			retval = tcm->dev_suspend(&tcm->pdev->dev);
+			retval = syna_dev_suspend(&tcm->pdev->dev);
 			tcm->fb_ready = 0;
 		} else if (transition == disp_blank_unblank) {
 #ifndef RESUME_EARLY_UNBLANK
-			retval = tcm->dev_resume(&tcm->pdev->dev);
+			retval = syna_dev_resume(&tcm->pdev->dev);
 			tcm->fb_ready++;
 #endif
 		} else if (action == disp_early_event_blank &&
 			transition == disp_blank_unblank) {
 #ifdef RESUME_EARLY_UNBLANK
-			retval = tcm->dev_resume(&tcm->pdev->dev);
+			retval = syna_dev_resume(&tcm->pdev->dev);
 			tcm->fb_ready++;
 #endif
 		}
@@ -1416,775 +1717,24 @@ static int syna_dev_disp_notifier_cb(struct notifier_block *nb,
 	return 0;
 }
 #endif
-#endif
-/*
- * Resume from the suspend state.
+
+/**
+ * syna_dev_disconnect()
  *
- * param
- *    [ in] dev: pointer to device
+ * This function will power off the connected device.
+ * Then, all the allocated resource will be released.
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
- */
-static int syna_dev_resume(struct device *dev)
-{
-	int retval = 0;
-	struct syna_tcm *tcm = dev_get_drvdata(dev);
-	struct tcm_dev *tcm_dev;
-	struct syna_hw_interface *hw_if;
-	struct syna_hw_attn_data *attn;
-	unsigned int resp_handling;
-
-	if (!tcm)
-		return -EINVAL;
-
-	tcm_dev = tcm->tcm_dev;
-	hw_if = tcm->hw_if;
-	attn = &hw_if->bdata_attn;
-	if (attn && (attn->irq_id) && (attn->irq_enabled))
-		resp_handling = CMD_RESPONSE_IN_ATTN;
-	else
-		resp_handling = tcm_dev->msg_data.command_polling_time;
-
-	if (tcm->pwr_state == PWR_ON)
-		return 0;
-
-	LOGI("Prepare to resume device\n");
-
-	/* clear all input events  */
-	syna_dev_free_input_events(tcm);
-
-#ifdef CONFIG_ARCH_QTI_VM
-	LOGI("TVM mode: Skip hardware operations in resume\n");
-	tcm->pwr_state = PWR_ON;
-
-	return 0;
-#endif
-
-	/* Restore reset GPIO as output before resuming the device.
-	 * Paired with the gpio_direction_input call in syna_dev_suspend().
-	 */
-	if (hw_if->ops_set_reset_gpio_input)
-		hw_if->ops_set_reset_gpio_input(false);
-
-#ifdef LOW_POWER_MODE
-	/* enter normal power mode */
-	retval = syna_dev_enter_normal_sensing(tcm);
-	if (retval < 0) {
-		LOGE("Fail to enter normal power mode\n");
-		goto exit;
-	}
-
-	/* enable irq */
-	if ((!attn->irq_enabled) && (hw_if->hw_platform.ops_enable_attn))
-		hw_if->hw_platform.ops_enable_attn(&hw_if->hw_platform, true);
-#else
-	/* power on the device */
-	if (hw_if->ops_power_on)
-		hw_if->ops_power_on(true);
-
-	/* enable irq */
-	if ((!attn->irq_enabled) && (hw_if->hw_platform.ops_enable_attn))
-		hw_if->hw_platform.ops_enable_attn(&hw_if->hw_platform, true);
-
-	syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
-#endif
-
-	if (IS_NOT_APP_FW_MODE(tcm_dev->dev_mode)) {
-		LOGW("Device is not in the application mode during resume\n");
-		goto exit;
-	}
-
-#ifdef RESET_ON_RESUME
-	LOGI("Do reset on resume\n");
-	syna_pal_sleep_ms(RESET_ON_RESUME_DELAY_MS);
-
-#ifdef HW_RESET_ON_RESUME
-	if (hw_if->ops_hw_reset)
-		hw_if->ops_hw_reset();
-
-	syna_pal_sleep_ms(DEV_POWER_SWITCHING_DELAY_MS);
-#else
-	if (syna_tcm_reset(tcm->tcm_dev, resp_handling) < 0) {
-		LOGE("Fail to do sw reset\n");
-		goto exit;
-	}
-#endif
-	if (IS_NOT_APP_FW_MODE(tcm_dev->dev_mode)) {
-		LOGW("Device is not in the application mode after reset\n");
-		goto exit;
-	}
-#else
-	retval = syna_tcm_rezero(tcm->tcm_dev, resp_handling);
-	if (retval < 0) {
-		LOGE("Fail to rezero\n");
-		goto exit;
-	}
-#endif
-
-	tcm->pwr_state = PWR_ON;
-
-	LOGI("Prepare to set up application firmware\n");
-
-	/* set up app firmware */
-	retval = syna_dev_set_up_app_fw(tcm);
-	if (retval < 0) {
-		LOGE("Fail to set up app firmware on resume\n");
-		goto exit;
-	}
-
-	retval = 0;
-
-	LOGI("Device resumed (pwr_state:%d)\n", tcm->pwr_state);
-exit:
-	return retval;
-}
-/*
- * Put device into suspend state, that could be the lower power gesture
- * mode or sleep mode.
+ * @param
+ *    [ in] tcm: the driver handle
  *
- * param
- *    [ in] dev: pointer to device
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
- */
-static int syna_dev_suspend(struct device *dev)
-{
-	struct syna_tcm *tcm = dev_get_drvdata(dev);
-	struct syna_hw_interface *hw_if = tcm->hw_if;
-
-	/* exit directly if device is already in suspend state */
-	if (tcm->pwr_state != PWR_ON)
-		return 0;
-
-	LOGI("Prepare to suspend device\n");
-
-	/* clear all input events */
-	syna_dev_free_input_events(tcm);
-
-	/* clear all pending commands */
-	syna_tcm_clear_command_processing(tcm->tcm_dev);
-
-#ifdef CONFIG_ARCH_QTI_VM
-	LOGI("TVM mode: Skip hardware operations in suspend\n");
-
-	tcm->pwr_state = PWR_OFF;
-	return 0;
-#endif
-
-#ifdef LOW_POWER_MODE
-	/* enter power saved mode */
-	if (syna_dev_enter_lowpwr_sensing(tcm) < 0) {
-		LOGE("Fail to enter power suspended mode\n");
-		return -EIO;
-	}
-
-	/* once lpwg is enabled, irq should be alive.
-	 * otherwise, disable irq in suspend.
-	 */
-	if ((tcm->pwr_state != LOW_PWR_GESTURE) && (hw_if->hw_platform.ops_enable_attn))
-		hw_if->hw_platform.ops_enable_attn(&hw_if->hw_platform, false);
-#else
-	/* disable the attn before powering off */
-	if (hw_if->hw_platform.ops_enable_attn)
-		hw_if->hw_platform.ops_enable_attn(&hw_if->hw_platform, false);
-
-	/* power off the device */
-	if (hw_if->ops_power_on)
-		hw_if->ops_power_on(false);
-
-	tcm->pwr_state = PWR_OFF;
-#endif
-
-	/* Set reset GPIO as input during sleep state to reduce leakage.
-	 * This is done here (not in ops_power_on) so it is only called
-	 * during suspend, never during shutdown where pinctrl hardware
-	 * may already be inaccessible.
-	 */
-	if (hw_if->ops_set_reset_gpio_input)
-		hw_if->ops_set_reset_gpio_input(true);
-
-	LOGI("Device suspended (pwr_state:%d)\n", tcm->pwr_state);
-
-	return 0;
-}
-
-#if defined(CONFIG_DRM)
-static void syna_dev_kref_release(struct kref *kref)
-{
-	struct syna_tcm *tcm = container_of(kref, struct syna_tcm, dev_kref);
-
-	complete(&tcm->dev_released);
-}
-#endif
-
-#if defined(CONFIG_DRM)
-/*
- * Panel notifier callback for suspend/resume events
- * This replaces the traditional .pm suspend/resume methods
- *
- * param
- *    [ in] tag:          panel event notifier tag
- *    [ in] notification: panel event notification data
- *    [ in] client_data:  private data (pointer to syna_tcm)
- *
- * return
- *    void.
- */
-static void syna_panel_notifier_callback(enum panel_event_notifier_tag tag,
-		struct panel_event_notification *notification, void *client_data)
-{
-	struct syna_tcm *tcm = client_data;
-
-	if (!notification) {
-		LOGE("Invalid notification\n");
-		return;
-	}
-
-	if (!tcm) {
-		LOGE("Invalid tcm data\n");
-		return;
-	}
-
-	if (!kref_get_unless_zero(&tcm->dev_kref)) {
-		LOGW("Device is being removed, skip callback\n");
-		return;
-	}
-
-	LOGD("Notification type:%d, early_trigger:%d, pwr_state:%d\n",
-		notification->notif_type,
-		notification->notif_data.early_trigger,
-		tcm->pwr_state);
-
-	switch (notification->notif_type) {
-	case DRM_PANEL_EVENT_UNBLANK:
-		if (!notification->notif_data.early_trigger) {
-			LOGD("DRM_PANEL_EVENT_UNBLANK\n");
-			syna_dev_resume(&tcm->pdev->dev);
-		}
-		break;
-
-	case DRM_PANEL_EVENT_BLANK:
-		if (notification->notif_data.early_trigger) {
-			LOGD("DRM_PANEL_EVENT_BLANK (early_trigger)\n");
-			syna_dev_suspend(&tcm->pdev->dev);
-		}
-		break;
-
-	case DRM_PANEL_EVENT_BLANK_LP:
-		LOGD("Received LP event\n");
-		break;
-
-	case DRM_PANEL_EVENT_FPS_CHANGE:
-		LOGD("Received FPS change: old fps:%d new fps:%d\n",
-			notification->notif_data.old_fps,
-			notification->notif_data.new_fps);
-		break;
-
-	default:
-		LOGD("Notification serviced: %d\n", notification->notif_type);
-		break;
-	}
-
-	kref_put(&tcm->dev_kref, syna_dev_kref_release);
-}
-#endif
-/*
- * Output the device information.
- *
- * param
- *    [ in] tcm: pointer to the driver context
- *
- * return
- *    void.
- */
-static void syna_dev_show_info(struct syna_tcm *tcm)
-{
-	struct syna_hw_interface *hw_if = tcm->hw_if;
-	bool has_custom_tp_config = false;
-	bool startup_reflash_enabled = false;
-	bool rst_on_resume_enabled = false;
-	bool background_helper_enabled  = false;
-
-	if (!tcm->is_connected)
-		return;
-
-	LOGI("Config: max. write size(%d), max. read size(%d)\n",
-		tcm->tcm_dev->max_wr_size, tcm->tcm_dev->max_rd_size);
-
-#ifdef USE_CUSTOM_TOUCH_REPORT_CONFIG
-	has_custom_tp_config = true;
-#endif
-#ifdef STARTUP_REFLASH
-	startup_reflash_enabled = true;
-#endif
-#ifdef RESET_ON_RESUME
-	rst_on_resume_enabled = true;
-#endif
-#ifdef ENABLE_HELPER
-	background_helper_enabled = true;
-#endif
-
-#ifdef TOUCHCOMM_TDDI
-	LOGI("Config: touch/display devices, multichip(%s)\n",
-		(tcm->is_tddi_multichip) ? "yes" : "no");
-#endif
-	LOGI("Config: startup reflash(%s), hw reset(%s), rst on resume(%s)\n",
-		(startup_reflash_enabled) ? "yes" : "no",
-		(hw_if->ops_hw_reset) ? "yes" : "no",
-		(rst_on_resume_enabled) ? "yes" : "no");
-	LOGI("Config: lpwg mode(%s), custom tp config(%s) helper work(%s)\n",
-		(tcm->lpwg_enabled) ? "yes" : "no",
-		(has_custom_tp_config) ? "yes" : "no",
-		(background_helper_enabled) ? "yes" : "no");
-}
-
-/*
- * TVM: Suspend helper callback for QTS framework
- */
-static int syna_ts_suspend_helper(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm || !tcm->init_done)
-		return 0;
-
-	return syna_dev_suspend(&tcm->pdev->dev);
-}
-
-/*
- * TVM: Resume helper callback for QTS framework
- */
-static int syna_ts_resume_helper(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm || !tcm->init_done)
-		return 0;
-
-	return syna_dev_resume(&tcm->pdev->dev);
-}
-
-/*
- * TVM: Enable/disable touch IRQ callback for QTS framework
- */
-static int syna_ts_enable_touch_irq(void *data, bool enable)
-{
-	int ret = 0;
-	struct syna_tcm *tcm = data;
-	struct syna_hw_attn_data *attn;
-	struct tcm_hw_platform *hw;
-
-	if (!tcm || !tcm->hw_if)
-		return -EINVAL;
-
-	attn = &tcm->hw_if->bdata_attn;
-	hw = &tcm->hw_if->hw_platform;
-
-	syna_pal_mutex_lock(&attn->irq_en_mutex);
-
-	if (enable) {
-		if (!attn->irq_enabled && attn->irq_id > 0) {
-			enable_irq(attn->irq_id);
-			attn->irq_enabled = true;
-			LOGI("TVM: IRQ %d enabled\n", attn->irq_id);
-		}
-	} else {
-		if (attn->irq_enabled && attn->irq_id > 0) {
-			disable_irq_nosync(attn->irq_id);
-			attn->irq_enabled = false;
-			LOGI("TVM: IRQ %d disabled\n", attn->irq_id);
-		}
-	}
-
-	syna_pal_mutex_unlock(&attn->irq_en_mutex);
-	return ret;
-}
-
-/*
- * TVM: Get IRQ number callback for QTS framework
- */
-static int syna_ts_get_irq_num(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm || !tcm->hw_if)
-		return -EINVAL;
-
-	return tcm->hw_if->bdata_attn.irq_id;
-}
-
-/*
- * TVM: Set IRQ number callback for QTS framework
- */
-static int syna_ts_set_irq_num(void *data, int irq)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm || !tcm->hw_if)
-		return -EINVAL;
-
-	LOGI("TVM: Updating IRQ number from %d to %d\n",
-		tcm->hw_if->bdata_attn.irq_id, irq);
-	tcm->hw_if->bdata_attn.irq_id = irq;
-
-	return 0;
-}
-
-/*
- * TVM: Pre-LA TUI enable callback
- */
-static int syna_ts_pre_la_tui_enable(void *data)
-{
-	struct syna_tcm *tcm = data;
-	struct syna_hw_attn_data *attn;
-
-	if (!tcm || !tcm->hw_if)
-		return -EINVAL;
-
-	attn = &tcm->hw_if->bdata_attn;
-
-	mutex_lock(&tcm->tui_transition_lock);
-
-	/* Disable IRQ to prevent interrupts during TUI transition */
-	if (attn->irq_enabled && attn->irq_id > 0) {
-		disable_irq_nosync(attn->irq_id);
-		attn->irq_enabled = false;
-	}
-
-#if defined(STARTUP_REFLASH) || defined(FLASH_RECOVERY)
-	/* Flush any pending reflash work */
-	if (tcm->reflash_workqueue) {
-		cancel_delayed_work_sync(&tcm->reflash_work);
-		flush_workqueue(tcm->reflash_workqueue);
-	}
-#endif
-
-#if defined(ENABLE_HELPER)
-	/* Flush helper work */
-	if (tcm->helper.workqueue) {
-		cancel_work_sync(&tcm->helper.work);
-		flush_workqueue(tcm->helper.workqueue);
-	}
-#endif
-
-	LOGI("TVM: Pre-LA TUI enable completed\n");
-
-	return 0;
-}
-
-/*
- * TVM: Post-LA TUI enable callback
- * Optimized to properly release touch events and unlock mutex
- */
-static int syna_ts_post_la_tui_enable(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm)
-		return -EINVAL;
-
-	/* Release all pending touch events */
-	syna_dev_free_input_events(tcm);
-
-	/* Clear any pending commands */
-	if (tcm->tcm_dev)
-		syna_tcm_clear_command_processing(tcm->tcm_dev);
-
-	mutex_unlock(&tcm->tui_transition_lock);
-
-	LOGI("TVM: Post-LA TUI enable completed\n");
-
-	return 0;
-}
-
-/*
- * TVM: Post-LE TUI enable callback - CRITICAL HARDWARE INITIALIZATION
- * Optimized based on ST FTS pattern with proper error handling and chip verification
- */
-static int syna_ts_post_le_tui_enable(void *data)
-{
-	struct syna_tcm *tcm = data;
-	struct syna_hw_interface *hw_if;
-	struct tcm_dev *tcm_dev;
-	int retval;
-	bool need_full_init = false;
-
-	if (!tcm || !tcm->hw_if || !tcm->tcm_dev)
-		return -EINVAL;
-
-	hw_if = tcm->hw_if;
-	tcm_dev = tcm->tcm_dev;
-
-	LOGI("TVM: post_le_tui_enable - Hardware now accessible\n");
-	if (tcm->pwr_state == PWR_OFF || !tcm->is_connected) {
-		need_full_init = true;
-		LOGI("TVM: Full initialization required (pwr_state:%d, connected:%d)\n",
-			tcm->pwr_state, tcm->is_connected);
-	}
-
-	if (need_full_init && hw_if->ops_power_on) {
-		retval = hw_if->ops_power_on(true);
-		if (retval < 0) {
-			LOGE("TVM: Fail to power on device\n");
-			return retval;
-		}
-		if (hw_if->bdata_pwr.power_delay_ms > 0)
-			syna_pal_sleep_ms(hw_if->bdata_pwr.power_delay_ms);
-
-		if (hw_if->ops_hw_reset)
-			hw_if->ops_hw_reset();
-	}
-
-#if defined(TOUCHCOMM_VERSION_1)
-	retval = syna_tcm_detect_device(tcm_dev, PROTOCOL_DETECT_VERSION_1, false);
-#elif defined(TOUCHCOMM_VERSION_2)
-	retval = syna_tcm_detect_device(tcm_dev, PROTOCOL_DETECT_VERSION_2, false);
-#else
-	LOGE("TVM: TouchComm protocol not specified\n");
-	return -EINVAL;
-#endif
-	if (retval < 0) {
-		LOGE("TVM: Fail to detect device\n");
-		return retval;
-	}
-
-	LOGI("TVM: Device detected, mode: 0x%02X\n", tcm_dev->dev_mode);
-
-	/* Step 5: Set up application firmware if in app mode */
-	if (IS_APP_FW_MODE(tcm_dev->dev_mode)) {
-		retval = syna_dev_set_up_app_fw(tcm);
-		if (retval < 0) {
-			LOGE("TVM: Fail to set up app firmware\n");
-			return retval;
-		}
-
-		/* Step 6: Set up input device (NOW we have max_x/max_y from IC) */
-		retval = syna_dev_set_up_input_device(tcm);
-		if (retval < 0) {
-			LOGE("TVM: Fail to set up input device\n");
-			return retval;
-		}
-
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-		/* Set up knob input device if needed */
-		retval = syna_dev_create_input_knob_device(tcm);
-		if (retval < 0) {
-			LOGW("TVM: Fail to set up knob input device\n");
-			/* Non-critical, continue */
-		}
-#endif
-	} else {
-		LOGW("TVM: Device not in app mode: 0x%02X\n", tcm_dev->dev_mode);
-	}
-
-	tcm->pwr_state = PWR_ON;
-	tcm->is_connected = true;
-	syna_dev_show_info(tcm);
-	LOGI("TVM: Hardware initialization completed successfully\n");
-
-	return 0;
-}
-
-/*
- * TVM: Pre-LE TUI disable callback
- * Optimized to flush any pending work before TUI session ends
- */
-static int syna_ts_pre_le_tui_disable(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm)
-		return -EINVAL;
-
-#if defined(STARTUP_REFLASH) || defined(FLASH_RECOVERY)
-	/* Flush any pending reflash work */
-	if (tcm->reflash_workqueue)
-		flush_workqueue(tcm->reflash_workqueue);
-#endif
-
-#if defined(ENABLE_HELPER)
-	/* Flush helper work */
-	if (tcm->helper.workqueue)
-		flush_workqueue(tcm->helper.workqueue);
-#endif
-
-	LOGI("TVM: Pre-LE TUI disable completed\n");
-
-	return 0;
-}
-
-/*
- * TVM: Post-LE TUI disable callback
- * Optimized to properly clean up after TUI session
- */
-static int syna_ts_post_le_tui_disable(void *data)
-{
-	struct syna_tcm *tcm = data;
-
-	if (!tcm)
-		return -EINVAL;
-
-	/* Release all pending touch events */
-	syna_dev_free_input_events(tcm);
-
-	/* Clear any pending commands */
-	if (tcm->tcm_dev)
-		syna_tcm_clear_command_processing(tcm->tcm_dev);
-
-	LOGI("TVM: Post-LE TUI disable completed\n");
-
-	return 0;
-}
-
-/*
- * TVM: IRQ handler wrapper with TUI transition lock
- * Optimized with trylock pattern from ST FTS
- */
-static irqreturn_t syna_irq_handler(int irq, void *data)
-{
-	struct syna_tcm *tcm = data;
-	struct syna_hw_attn_data *attn;
-	int max_reads = 10;
-	int read_count = 0;
-
-	if (!tcm)
-		return IRQ_HANDLED;
-
-	attn = &tcm->hw_if->bdata_attn;
-
-	/* Use trylock to avoid blocking during TUI transitions */
-	if (!mutex_trylock(&tcm->tui_transition_lock)) {
-		/* Lock failed - likely during TUI transition
-		 * Still need to read ALL FIFO events to prevent blocking
-		 * Loop until IRQ line is deasserted or max reads reached
-		 */
-		if (tcm->tcm_dev) {
-			unsigned char code = 0;
-			struct tcm_buffer temp_buf;
-
-			syna_tcm_buf_init(&temp_buf);
-
-			/* Keep reading until FIFO is empty (IRQ deasserted) */
-			while (gpio_get_value(attn->irq_gpio) == attn->irq_on_state &&
-			       read_count < max_reads) {
-				/* Quick read to clear FIFO - ignore errors during transition */
-				if (syna_tcm_get_event_data(tcm->tcm_dev, &code, &temp_buf) < 0)
-					break;
-				read_count++;
-			}
-
-			syna_tcm_buf_release(&temp_buf);
-
-			if (read_count > 0)
-				pr_debug("TUI transition: cleared %d FIFO events\n", read_count);
-		}
-
-		return IRQ_HANDLED;
-	}
-
-	while (gpio_get_value(attn->irq_gpio) == attn->irq_on_state &&
-	       read_count < max_reads) {
-		syna_dev_isr(irq, data);
-		read_count++;
-	}
-
-	mutex_unlock(&tcm->tui_transition_lock);
-
-	return IRQ_HANDLED;
-}
-
-/*
- * TVM: Fill QTS vendor data structure
- * Optimized with proper error handling and GPIO configuration
- */
-static void syna_ts_fill_qts_vendor_data(struct qts_vendor_data *qts_vendor_data,
-		struct syna_tcm *tcm)
-{
-	struct device_node *node;
-	struct syna_hw_attn_data *attn;
-	struct syna_hw_rst_data *rst;
-	const char *touch_type;
-	int rc;
-
-	if (!tcm || !tcm->pdev || !tcm->hw_if) {
-		LOGE("TVM: Invalid parameters for QTS vendor data\n");
-		return;
-	}
-
-	node = tcm->pdev->dev.of_node;
-	attn = &tcm->hw_if->bdata_attn;
-	rst = &tcm->hw_if->bdata_rst;
-
-	/* Determine touch type (primary or secondary) */
-	rc = of_property_read_string(node, "synaptics,touch-type", &touch_type);
-	if (rc) {
-		LOGI("TVM: No touch type specified, defaulting to primary\n");
-		qts_vendor_data->client_type = QTS_CLIENT_PRIMARY_TOUCH;
-	} else {
-		if (!strcmp(touch_type, "primary"))
-			qts_vendor_data->client_type = QTS_CLIENT_PRIMARY_TOUCH;
-		else
-			qts_vendor_data->client_type = QTS_CLIENT_SECONDARY_TOUCH;
-	}
-
-	/* Set bus type and device pointers */
-	if (tcm->hw_if->hw_platform.type == BUS_TYPE_SPI) {
-		qts_vendor_data->client = NULL;
-		qts_vendor_data->spi = tcm->hw_if->pdev;
-		qts_vendor_data->bus_type = QTS_BUS_TYPE_SPI;
-		LOGI("TVM: Bus type: SPI\n");
-	} else if (tcm->hw_if->hw_platform.type == BUS_TYPE_I2C) {
-		qts_vendor_data->client = tcm->hw_if->pdev;
-		qts_vendor_data->spi = NULL;
-		qts_vendor_data->bus_type = QTS_BUS_TYPE_I2C;
-		LOGI("TVM: Bus type: I2C\n");
-	}
-
-	/* Set GPIO configuration */
-	qts_vendor_data->irq_gpio = attn->irq_gpio;
-	qts_vendor_data->irq_gpio_flags = attn->irq_flags;
-	qts_vendor_data->reset_gpio = rst->reset_gpio;
-
-	/* Set vendor data and flags */
-	qts_vendor_data->vendor_data = tcm;
-	qts_vendor_data->schedule_suspend = false;
-	qts_vendor_data->schedule_resume = false;
-
-	/* Set vendor operations callbacks */
-	qts_vendor_data->qts_vendor_ops.suspend = syna_ts_suspend_helper;
-	qts_vendor_data->qts_vendor_ops.resume = syna_ts_resume_helper;
-	qts_vendor_data->qts_vendor_ops.enable_touch_irq = syna_ts_enable_touch_irq;
-	qts_vendor_data->qts_vendor_ops.get_irq_num = syna_ts_get_irq_num;
-	qts_vendor_data->qts_vendor_ops.set_irq_num = syna_ts_set_irq_num;
-	qts_vendor_data->qts_vendor_ops.pre_la_tui_enable = syna_ts_pre_la_tui_enable;
-	qts_vendor_data->qts_vendor_ops.post_la_tui_enable = syna_ts_post_la_tui_enable;
-	qts_vendor_data->qts_vendor_ops.pre_la_tui_disable = NULL;
-	qts_vendor_data->qts_vendor_ops.post_la_tui_disable = NULL;
-	qts_vendor_data->qts_vendor_ops.pre_le_tui_enable = NULL;
-	qts_vendor_data->qts_vendor_ops.post_le_tui_enable = syna_ts_post_le_tui_enable;
-	qts_vendor_data->qts_vendor_ops.pre_le_tui_disable = syna_ts_pre_le_tui_disable;
-	qts_vendor_data->qts_vendor_ops.post_le_tui_disable = syna_ts_post_le_tui_disable;
-	qts_vendor_data->qts_vendor_ops.irq_handler = syna_irq_handler;
-
-	LOGI("TVM: QTS vendor data configured successfully\n");
-}
-
-/*
- * Disconnect and power off the device.
- *
- * param
- *    [ in] tcm: pointer to the driver context
- *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_disconnect(struct syna_tcm *tcm)
 {
 	struct syna_hw_interface *hw_if = tcm->hw_if;
 
-	if (!tcm->is_connected && tcm->pwr_state == PWR_OFF) {
+	if (tcm->is_connected == false) {
 		LOGI("%s already disconnected\n", PLATFORM_DRIVER_NAME);
 		return 0;
 	}
@@ -2195,12 +1745,9 @@ static int syna_dev_disconnect(struct syna_tcm *tcm)
 	}
 
 #ifdef STARTUP_REFLASH
-	if (tcm->reflash_workqueue) {
-		cancel_delayed_work_sync(&tcm->reflash_work);
-		flush_workqueue(tcm->reflash_workqueue);
-		destroy_workqueue(tcm->reflash_workqueue);
-		tcm->reflash_workqueue = NULL;
-	}
+	cancel_delayed_work_sync(&tcm->reflash_work);
+	flush_workqueue(tcm->reflash_workqueue);
+	destroy_workqueue(tcm->reflash_workqueue);
 #endif
 
 	/* free interrupt line */
@@ -2208,9 +1755,6 @@ static int syna_dev_disconnect(struct syna_tcm *tcm)
 		syna_dev_release_irq(tcm);
 
 	/* unregister input device */
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-	syna_dev_release_input_knob_device(tcm);
-#endif
 	syna_dev_release_input_device(tcm);
 
 	tcm->input_dev_params.max_x = 0;
@@ -2218,9 +1762,11 @@ static int syna_dev_disconnect(struct syna_tcm *tcm)
 	tcm->input_dev_params.max_objects = 0;
 
 exit:
-	if (hw_if->ops_power_on && tcm->pwr_state != PWR_OFF)
-		hw_if->ops_power_on(false);
-
+#ifdef POWER_SEQUENCE_ON_CONNECT
+	/* power off */
+	if (hw_if->ops_power_on)
+		hw_if->ops_power_on(hw_if, false);
+#endif
 	tcm->pwr_state = PWR_OFF;
 	tcm->is_connected = false;
 
@@ -2229,14 +1775,17 @@ exit:
 	return 0;
 }
 
-/*
- * Connect and power on the device.
+/**
+ * syna_dev_connect()
  *
- * param
- *    [ in] tcm: pointer to the driver context
+ * This function will power on and identify the connected device.
+ * At the end of function, the ISR will be registered as well.
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] tcm: the driver handle
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_connect(struct syna_tcm *tcm)
 {
@@ -2253,106 +1802,89 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 		LOGI("Device %s already connected\n", PLATFORM_DRIVER_NAME);
 		return 0;
 	}
-
-#ifdef CONFIG_ARCH_QTI_VM
-	/* TVM: Defer hardware initialization to post_le_tui_enable callback.
-	 * However, pre-register the input device at probe time
-	 * so that udev processes the uevent early and
-	 * /dev/input/eventX has correct permissions before openTouchDeviceFd()
-	 * is called. This mirrors the ST FTS approach.
-	 */
-	LOGI("TVM mode: Defer hardware initialization to post_le_tui_enable\n");
-
-	tcm->is_connected = true;
-	tcm->pwr_state = PWR_OFF;
-
-	tcm->tcm_dev->max_x = TVM_PANEL_MAX_X;
-	tcm->tcm_dev->max_y = TVM_PANEL_MAX_Y;
-	tcm->tcm_dev->max_objects = MAX_NUM_OBJECTS;
-
-	syna_pal_mutex_lock(&tcm->tp_event_mutex);
-	if (syna_dev_create_input_device(tcm) < 0)
-		LOGW("TVM: Failed to pre-register input device, try later\n");
-	else
-		LOGI("TVM: Input device pre-registered successfully\n");
-	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
-
-	LOGI("TVM: Driver probe completed, waiting for TUI session\n");
-	return 0;
-#endif
-	/* PVM: Normal hardware initialization */
+#ifdef POWER_SEQUENCE_ON_CONNECT
 	/* power on the connected device */
 	if (hw_if->ops_power_on) {
-		retval = hw_if->ops_power_on(true);
+		retval = hw_if->ops_power_on(hw_if, true);
 		if (retval < 0)
 			return -ENODEV;
-		if (hw_if->bdata_pwr.power_delay_ms > 0)
-			syna_pal_sleep_ms(hw_if->bdata_pwr.power_delay_ms);
+	}
+#endif
+	/* initialize the gpio pins */
+	retval = hw_if->ops_config_gpio(hw_if);
+	if (retval < 0) {
+		LOGE("Fail to config gpio\n");
+		return retval;
 	}
 
 #ifdef RESET_ON_CONNECT
 	/* perform a hardware reset */
 	if (hw_if->ops_hw_reset)
-		hw_if->ops_hw_reset();
+		hw_if->ops_hw_reset(hw_if, 0);
 #endif
-
-	/* detect which modes of touch controller is running */
-#if defined(TOUCHCOMM_VERSION_1)
-	retval = syna_tcm_detect_device(tcm->tcm_dev, PROTOCOL_DETECT_VERSION_1, false);
-#elif defined(TOUCHCOMM_VERSION_2)
-	retval = syna_tcm_detect_device(tcm->tcm_dev, PROTOCOL_DETECT_VERSION_2, false);
-#else
-	LOGW("TouchComm protocol is not specified, switch to Bare mode.\n");
-	/* 'Bare' mode is a special software mode to bypass all control from userspace */
-	tcm->pwr_state = BARE_MODE;
-	LOGI("Device %s config into bare mode\n", PLATFORM_DRIVER_NAME);
-	return 0;
-#endif
+	/* detect which modes of touch controller is running
+	 *
+	 * this function will handle the startup packet once
+	 * powering on the ASIC
+	 */
+	retval = syna_tcm_detect_device(tcm->tcm_dev, 0, true);
 	if (retval < 0) {
 		LOGE("Fail to detect the device\n");
 		goto err_detect_dev;
 	}
+	/* 'Bare' mode is a special software mode to bypass all
+	 * driver control for the specific user scenario
+	 */
+	if (tcm->pwr_state == BARE_MODE) {
+		LOGI("Device %s config into bare mode\n", PLATFORM_DRIVER_NAME);
+		tcm->is_connected = true;
+		return 0;
+	}
 
-	if (tcm_dev->dev_mode == MODE_APPLICATION_FIRMWARE) {
+#ifdef FORCE_CONNECTION
+	goto request_irq;
+#endif
+
+	switch (retval) {
+	case MODE_APPLICATION_FIRMWARE:
 		retval = syna_dev_set_up_app_fw(tcm);
 		if (retval < 0) {
 			LOGE("Fail to set up application firmware\n");
 
 			/* switch to bootloader mode when failed */
 			LOGI("Switch device to bootloader mode instead\n");
-			syna_tcm_switch_fw_mode(tcm_dev, MODE_BOOTLOADER,
-					tcm_dev->fw_mode_switching_time);
+			syna_tcm_switch_fw_mode(tcm_dev,
+					MODE_BOOTLOADER,
+					FW_MODE_SWITCH_DELAY_MS);
 		} else {
 			/* allocate and register to input device subsystem */
+			/*
+			only register input device in syna_dev_reflash_startup
 			retval = syna_dev_set_up_input_device(tcm);
 			if (retval < 0) {
 				LOGE("Fail to set up input device\n");
 				goto err_setup_input_dev;
 			}
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-			retval = syna_dev_create_input_knob_device(tcm);
-			if (retval < 0) {
-				LOGE("Fail to set up input device for knob\n");
-				goto err_setup_input_dev;
-			}
-#endif
+			*/
 		}
-	} else {
-		LOGN("Application firmware not running, current mode: %02x\n", tcm_dev->dev_mode);
 
-		if (tcm_dev->dev_mode == MODE_BOOTLOADER) {
-			retval = syna_tcm_get_boot_info(tcm_dev, NULL, CMD_RESPONSE_IN_POLLING);
-			if (retval >= 0)
-				LOGI("Boot info status: 0x%02X\n", tcm_dev->boot_info.status);
-		}
+		break;
+	default:
+		LOGN("Application firmware not running, current mode: %02x\n",
+			retval);
+		break;
 	}
 
-	/* register the handling of report resulting from the unexpected reset */
-	retval = syna_tcm_set_report_dispatcher(tcm_dev,
-			REPORT_IDENTIFY, syna_dev_process_unexpected_reset, (void *)tcm);
-	if (retval < 0)
-		LOGE("Fail to register the handling function of unexpected reset\n");
-
+#ifdef FORCE_CONNECTION
+request_irq:
+#endif
+/* NOTE:
+ * Before request irq,
+ * tui mutex must be initalized.
+ */
+#ifdef CONFIG_TRUSTED_TOUCH_XRING
+	mutex_init(&g_xring_tui_mutex);
+#endif
 	/* register the interrupt handler */
 	retval = syna_dev_request_irq(tcm);
 	if (retval < 0) {
@@ -2363,140 +1895,87 @@ static int syna_dev_connect(struct syna_tcm *tcm)
 	/* for the reference,
 	 * create a delayed work to perform fw update during the startup time
 	 */
-#if defined(STARTUP_REFLASH) || defined(FLASH_RECOVERY)
-	tcm->reflash_workqueue = create_singlethread_workqueue("syna_reflash");
+	syna_xiaomi_touch_probe(tcm);
+#ifdef STARTUP_REFLASH
+	tcm->reflash_workqueue =
+			create_singlethread_workqueue("syna_reflash");
 	INIT_DELAYED_WORK(&tcm->reflash_work, syna_dev_reflash_startup_work);
-#if defined(STARTUP_REFLASH)
-	queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work, msecs_to_jiffies(200));
+	queue_delayed_work(tcm->reflash_workqueue, &tcm->reflash_work,
+			msecs_to_jiffies(STARTUP_REFLASH_DELAY_TIME_MS));
 #endif
-#endif
+
+	LOGI("TCM packrat: %d, Cfg: %02x %02x\n", tcm->tcm_dev->packrat_number,
+				tcm->tcm_dev->app_info.customer_config_id[6] - 48,
+				tcm->tcm_dev->app_info.customer_config_id[7] - 48);
+	LOGI("Config: custom tp config(%s) helper work(%s)\n",
+		(tcm->has_custom_tp_config) ? "yes" : "no",
+		(tcm->helper_enabled) ? "yes" : "no");
+	LOGI("Config: startup reflash(%s), hw reset(%s), rst on resume(%s)\n",
+		(tcm->startup_reflash_enabled) ? "yes" : "no",
+		(hw_if->ops_hw_reset) ? "yes" : "no",
+		(tcm->rst_on_resume_enabled) ? "yes" : "no");
+	LOGI("Config: max. write size(%d), max. read size(%d), irq ctrl(%s)\n",
+		tcm_dev->max_wr_size, tcm_dev->max_rd_size,
+		(hw_if->ops_enable_irq) ? "yes" : "no");
+
+	LOGI("Device %s connected\n", PLATFORM_DRIVER_NAME);
 
 	tcm->pwr_state = PWR_ON;
 	tcm->is_connected = true;
 
-#if defined(CONFIG_DRM)
-	/* Register for panel events for suspend/resume */
-	if (active_panel) {
-		retval = syna_register_for_panel_events(tcm->pdev->dev.of_node, tcm);
-		if (retval < 0)
-			LOGW("Failed to register for panel events\n");
-	}
-#endif
-
-	syna_dev_show_info(tcm);
-
-	LOGI("Device %s connected\n", PLATFORM_DRIVER_NAME);
-
 	return 0;
 
 err_request_irq:
+#ifdef CONFIG_TRUSTED_TOUCH_XRING
+	mutex_destroy(&g_xring_tui_mutex);
+#endif
 	/* unregister input device */
 	syna_dev_release_input_device(tcm);
-#if defined(TOUCHCOMM_TDDI) && defined(REPORT_KNOB)
-	syna_dev_release_input_knob_device(tcm);
-#endif
-err_setup_input_dev:
+
 err_detect_dev:
+#ifdef POWER_SEQUENCE_ON_CONNECT
 	if (hw_if->ops_power_on)
-		hw_if->ops_power_on(false);
+		hw_if->ops_power_on(hw_if, false);
+#endif
 	return retval;
 }
 
-#ifdef USE_DRM_BRIDGE
-/*
- * To register a panel bridge based on DAM Bridge framework
- */
-struct drm_connector *syna_dev_get_connector(struct drm_bridge *bridge)
+#ifdef USE_DRM_PANEL_NOTIFIER
+static struct drm_panel *syna_dev_get_panel(struct device_node *np)
 {
-	struct drm_connector *connector;
-	struct drm_connector_list_iter conn_iter;
+	int i;
+	int count;
+	struct device_node *node;
+	struct drm_panel *panel;
 
-	drm_connector_list_iter_begin(bridge->dev, &conn_iter);
-	drm_for_each_connector_iter(connector, &conn_iter) {
-		if (connector->encoder == bridge->encoder)
-			break;
-	}
-	drm_connector_list_iter_end(&conn_iter);
-	return connector;
-}
+	count = of_count_phandle_with_args(np, "panel", NULL);
+	if (count <= 0)
+		return NULL;
 
-static void syna_dev_panel_enable(struct drm_bridge *bridge)
-{
-	struct syna_tcm *tcm =
-			container_of(bridge, struct syna_tcm, panel_bridge);
-
-	LOGD("Panel bridge enabled (pwr_state:%d)\n", tcm->pwr_state);
-}
-
-static void syna_dev_panel_disable(struct drm_bridge *bridge)
-{
-	struct syna_tcm *tcm =
-			container_of(bridge, struct syna_tcm, panel_bridge);
-
-	LOGD("Panel bridge disabled (pwr_state:%d)\n", tcm->pwr_state);
-}
-
-static void syna_dev_panel_mode_set(struct drm_bridge *bridge,
-	const struct drm_display_mode *mode,
-	const struct drm_display_mode *adjusted_mode)
-{
-	struct syna_tcm *tcm =
-			container_of(bridge, struct syna_tcm, panel_bridge);
-
-	if (!tcm->connector || !tcm->connector->state) {
-		LOGI("Get bridge connector.\n");
-		tcm->connector = syna_dev_get_connector(bridge);
-	}
-	LOGD("Panel bridge mode set (pwr_state:%d)\n", tcm->pwr_state);
-}
-
-static const struct drm_bridge_funcs panel_bridge_ops = {
-	.enable = syna_dev_panel_enable,
-	.disable = syna_dev_panel_disable,
-	.mode_set = syna_dev_panel_mode_set,
-};
-
-static int syna_dev_register_panel(struct syna_tcm *tcm)
-{
-#ifdef CONFIG_OF
-	tcm->panel_bridge.of_node = tcm->pdev->dev.parent->of_node;
-#endif
-	tcm->panel_bridge.funcs = &panel_bridge_ops;
-	drm_bridge_add(&tcm->panel_bridge);
-
-	return 0;
-}
-
-static void syna_dev_unregister_panel(struct drm_bridge *bridge)
-{
-	struct drm_bridge *node;
-
-	drm_bridge_remove(bridge);
-
-	if (!bridge->dev)
-		return;
-
-	drm_modeset_lock(&bridge->dev->mode_config.connection_mutex, NULL);
-	list_for_each_entry(node, &bridge->encoder->bridge_chain, chain_node)
-		if (node == bridge) {
-			if (bridge->funcs->detach)
-				bridge->funcs->detach(bridge);
-			list_del(&bridge->chain_node);
-			break;
+	for (i = 0; i < count; i++) {
+		node = of_parse_phandle(np, "panel", i);
+		panel = of_drm_find_panel(node);
+		of_node_put(node);
+		if (!IS_ERR(panel)) {
+			LOGI("Find available panel\n");
+			return panel;
 		}
-	drm_modeset_unlock(&bridge->dev->mode_config.connection_mutex);
-	bridge->dev = NULL;
+	}
+
+	return NULL;
 }
 #endif
 
-/*
- * Probe of TouchComm device driver.
+/**
+ * syna_dev_probe()
  *
- * param
- *    [ in] pdev: pointer to platform device
+ * Install the TouchComm device driver
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] pdev: an instance of platform device
+ *
+ * @return
+ *    on success, 0; otherwise, negative value on error.
  */
 static int syna_dev_probe(struct platform_device *pdev)
 {
@@ -2504,9 +1983,9 @@ static int syna_dev_probe(struct platform_device *pdev)
 	struct syna_tcm *tcm = NULL;
 	struct tcm_dev *tcm_dev = NULL;
 	struct syna_hw_interface *hw_if = NULL;
-	struct qts_vendor_data qts_vendor_data;
+#if defined(USE_DRM_PANEL_NOTIFIER)
 	struct device *dev;
-	static int tcm_alloc_retry;
+#endif
 
 	hw_if = pdev->dev.platform_data;
 	if (!hw_if) {
@@ -2516,154 +1995,115 @@ static int syna_dev_probe(struct platform_device *pdev)
 
 	tcm = syna_pal_mem_alloc(1, sizeof(struct syna_tcm));
 	if (!tcm) {
-		if (++tcm_alloc_retry >= 3) {
-			LOGE("Fail to create the handle of syna_tcm, already retried %d times\n",
-				tcm_alloc_retry);
-			return -ENOMEM;
-		}
-		LOGW("Fail to create the handle of syna_tcm, try it later (%d/3)\n",
-			tcm_alloc_retry);
-		return -EPROBE_DEFER;
+		LOGE("Fail to create the instance of syna_tcm\n");
+		return -ENOMEM;
 	}
-	tcm_alloc_retry = 0;
 
-	dev = syna_request_managed_device();
-#if defined(CONFIG_DRM)
-	/* Check device tree for panel configuration */
-	if (dev->of_node) {
-		retval = syna_check_dt(dev->of_node);
-		if (retval == -EPROBE_DEFER) {
-			LOGI("Panel not ready, defer probe\n");
-			return retval;
-		}
-		if (retval < 0)
-			LOGW("No panel found in device tree\n");
-	} else {
-		LOGW("No device tree node found\n");
-	}
-#endif
-
-	syna_pal_completion_alloc(&tcm->init_completed);
-
-#if defined(CONFIG_DRM)
-	kref_init(&tcm->dev_kref);
-	init_completion(&tcm->dev_released);
-#endif
-
-	/* allocate the TouchComm device handle */
-	retval = syna_tcm_allocate_device(&tcm_dev,
-		&hw_if->hw_platform, (void *)tcm);
+	/* allocate the TouchCom device handle
+	 * recommend to set polling mode here because isr is not registered yet
+	 */
+	retval = syna_tcm_allocate_device(&tcm_dev, hw_if, RESP_IN_POLLING);
 	if ((retval < 0) || (!tcm_dev)) {
-		LOGE("Fail to allocate TouchComm device handle\n");
-		goto err_allocate_tcm;
+		LOGE("Fail to allocate TouchCom device handle\n");
+		goto err_allocate_cdev;
 	}
 
 	tcm->tcm_dev = tcm_dev;
 	tcm->pdev = pdev;
 	tcm->hw_if = hw_if;
 
-	/* configure the timings for processing */
-	retval = syna_tcm_config_timings(tcm_dev, &hw_if->product.timings, 0, TIMINGS_ALL);
-	if (retval < 0) {
-		LOGE("Fail to config the timings\n");
-		goto err_setup_timings;
-	}
-
-	/* basic initialization */
 	syna_tcm_buf_init(&tcm->event_data);
 
 	syna_pal_mutex_alloc(&tcm->tp_event_mutex);
 
-#ifdef ENABLE_WAKEUP_GESTURE
-	tcm->lpwg_enabled = true;
+#ifdef USE_CUSTOM_TOUCH_REPORT_CONFIG
+	tcm->has_custom_tp_config = true;
 #else
-	tcm->lpwg_enabled = false;
+	tcm->has_custom_tp_config = false;
 #endif
-#ifdef TOUCHCOMM_TDDI
-#ifdef IS_TDDI_MULTICHIP
-	tcm->is_tddi_multichip = true;
+#ifdef STARTUP_REFLASH
+	tcm->startup_reflash_enabled = true;
 #else
-	tcm->is_tddi_multichip = false;
+	tcm->startup_reflash_enabled = false;
 #endif
+#ifdef RESET_ON_RESUME
+	tcm->rst_on_resume_enabled = true;
+#else
+	tcm->rst_on_resume_enabled = false;
+#endif
+#ifdef ENABLE_HELPER
+	tcm->helper_enabled = true;
+#else
+	tcm->helper_enabled = false;
 #endif
 	tcm->irq_wake = false;
 
 	tcm->is_connected = false;
 	tcm->pwr_state = PWR_OFF;
-
 	tcm->dev_connect = syna_dev_connect;
 	tcm->dev_disconnect = syna_dev_disconnect;
 	tcm->dev_set_up_app_fw = syna_dev_set_up_app_fw;
 	tcm->dev_resume = syna_dev_resume;
 	tcm->dev_suspend = syna_dev_suspend;
+	tcm->dev_request_irq = syna_dev_request_irq;
+	tcm->dev_release_irq = syna_dev_release_irq;
 
 	tcm->userspace_app_info = NULL;
 
 	platform_set_drvdata(pdev, tcm);
 
 	device_init_wakeup(&pdev->dev, 1);
+	init_completion(&tcm->pm_resume_completion);
+	init_completion(&tcm->tcm_dev->fw_update_completion);
+	ATOMIC_SET(tcm->is_resuming, 0);
+	ATOMIC_SET(tcm->is_suspending, 0);
 
-	/* TVM: Initialize TUI transition lock */
-	mutex_init(&tcm->tui_transition_lock);
-
-	/* TVM: Check if QTS is enabled and register with QTS framework */
-	if (hw_if->bdata_tvm.qts_en) {
-		memset(&qts_vendor_data, 0, sizeof(qts_vendor_data));
-		syna_ts_fill_qts_vendor_data(&qts_vendor_data, tcm);
-
-		retval = qts_client_register(&qts_vendor_data);
-		if (retval) {
-			LOGE("QTS client register failed, rc %d\n", retval);
-			mutex_destroy(&tcm->tui_transition_lock);
-			goto err_qts_register;
-		}
-		tcm->qts_enabled = true;
-		LOGI("TVM: QTS client registered successfully\n");
-	}
-
+#if defined(TCM_CONNECT_IN_PROBE)
 	/* connect to target device */
-	retval = syna_dev_connect(tcm);
+	retval = tcm->dev_connect(tcm);
 	if (retval < 0) {
 #ifdef FORCE_CONNECTION
-		LOGW("Failed on device detection\n");
-		LOGN("Install driver anyway due to the force connection\n");
+		LOGW("Device detection is failed somehow\n");
+		LOGW("Install driver anyway due to force connect\n");
 #else
 		LOGE("Fail to connect to the device\n");
 		syna_pal_mutex_free(&tcm->tp_event_mutex);
 		goto err_connect;
 #endif
 	}
+#endif
 
+#ifdef HAS_SYSFS_INTERFACE
 	/* create the device file and register to char device classes */
-	retval = syna_cdev_create(tcm);
+	retval = syna_cdev_create(tcm, pdev);
 	if (retval < 0) {
-		LOGE("Fail to create the character device interface\n");
+		LOGE("Fail to create the device sysfs\n");
 		syna_pal_mutex_free(&tcm->tp_event_mutex);
 		goto err_create_cdev;
 	}
+#endif
 
-#ifdef HAS_SYSFS_INTERFACE
-	retval = syna_sysfs_create_dir(tcm);
-	if (retval < 0) {
-		LOGE("Fail to create sysfs dir\n");
-		retval = -ENOTDIR;
-		goto err_create_dir;
-	}
-#endif
 #if defined(ENABLE_DISP_NOTIFIER)
-#if defined(USE_DRM_BRIDGE)
-	retval = syna_dev_register_panel(tcm);
-	if (retval < 0) {
-		LOGE("Fail to register panel bridge\n");
-		goto err_disp_notifier;
+#if defined(USE_DRM_PANEL_NOTIFIER)
+	dev = syna_request_managed_device();
+	active_panel = syna_dev_get_panel(dev->of_node);
+	if (active_panel) {
+		tcm->fb_notifier.notifier_call = syna_dev_fb_notifier_cb;
+		retval = drm_panel_notifier_register(active_panel,
+				&tcm->fb_notifier);
+		if (retval < 0) {
+			LOGE("Fail to register FB notifier client\n");
+			goto err_create_cdev;
+		}
+	} else {
+		LOGE("No available drm panel\n");
 	}
-#endif
-#if defined(USE_FB)
-	tcm->fb_notifier.notifier_call = syna_dev_disp_notifier_cb;
+#else
+	tcm->fb_notifier.notifier_call = syna_dev_fb_notifier_cb;
 	retval = fb_register_client(&tcm->fb_notifier);
 	if (retval < 0) {
 		LOGE("Fail to register FB notifier client\n");
-		goto err_disp_notifier;
+		goto err_create_cdev;
 	}
 #endif
 #endif
@@ -2673,195 +2113,206 @@ static int syna_dev_probe(struct platform_device *pdev)
 	tcm->helper.workqueue =
 			create_singlethread_workqueue("synaptics_tcm_helper");
 	INIT_WORK(&tcm->helper.work, syna_dev_helper_work);
+	/* set up custom touch data parsing method */
+	syna_tcm_set_reset_occurrence_callback(tcm_dev,
+			syna_dev_reset_detected_cb,
+			(void *)tcm);
 #endif
-
+	syna_tcm_change_resp_read(tcm_dev, RESP_IN_ATTN);
 	LOGI("TouchComm driver, %s ver.: %d.%s, installed\n",
 		PLATFORM_DRIVER_NAME,
 		SYNAPTICS_TCM_DRIVER_VERSION,
 		SYNAPTICS_TCM_DRIVER_SUBVER);
 
-	tcm->init_done = true;
-	syna_pal_completion_complete(&tcm->init_completed);
-
+	tcm->tp_probe_success = true;
 	return 0;
 
-#if defined(ENABLE_DISP_NOTIFIER)
-#if defined(USE_DRM_BRIDGE) || defined(USE_FB)
-err_disp_notifier:
-#endif
-#endif
 #ifdef HAS_SYSFS_INTERFACE
-err_create_dir:
-	syna_cdev_remove(tcm);
-#endif
 err_create_cdev:
-	syna_dev_disconnect(tcm);
-#ifndef FORCE_CONNECTION
+	syna_tcm_remove_device(tcm->tcm_dev);
+#endif
+#if defined(TCM_CONNECT_IN_PROBE)
+	tcm->dev_disconnect(tcm);
 err_connect:
 #endif
-	if (tcm->qts_enabled) {
-		qts_client_unregister();
-		mutex_destroy(&tcm->tui_transition_lock);
-	}
-err_qts_register:
+#ifdef SYNAPTICS_DEBUGFS_ENABLE
+	debugfs_remove_recursive(tcm->debugfs);
+#endif
 	syna_tcm_buf_release(&tcm->event_data);
 	syna_pal_mutex_free(&tcm->tp_event_mutex);
-err_setup_timings:
-	syna_tcm_remove_device(tcm_dev);
-err_allocate_tcm:
+err_allocate_cdev:
+
+	/* release testing_hcd */
+	if (tcm->testing_hcd) {
+		kfree((void *)tcm->testing_hcd);
+		tcm->testing_hcd = NULL;
+	}
+
 	syna_pal_mem_free((void *)tcm);
-	syna_pal_completion_free(&tcm->init_completed);
 
 	return retval;
 }
 
-/*
- * Release all resources allocated previously.
+/**
+ * syna_dev_remove()
  *
- * param
- *    [ in] pdev: pointer to platform device
+ * Release all allocated resources and remove the TouchCom device handle
  *
- * return
- *    0 or positive value in case of success, a negative value otherwise.
+ * @param
+ *    [ in] pdev: an instance of platform device
+ *
+ * @return
+ *    none
  */
-#if (KERNEL_VERSION(6, 12, 0) <= LINUX_VERSION_CODE)
 static void syna_dev_remove(struct platform_device *pdev)
-#else
-static int syna_dev_remove(struct platform_device *pdev)
-#endif
 {
 	struct syna_tcm *tcm = platform_get_drvdata(pdev);
-
 	if (!tcm) {
 		LOGW("Invalid handle to remove\n");
-#if (KERNEL_VERSION(6, 12, 0) <= LINUX_VERSION_CODE)
-		return;
-#else
-		return 0;
-#endif
 	}
 
-#if defined(CONFIG_DRM)
-	if (tcm->notifier_cookie) {
-		panel_event_notifier_unregister(tcm->notifier_cookie);
-		tcm->notifier_cookie = NULL;
-	}
-
-	kref_put(&tcm->dev_kref, syna_dev_kref_release);
-	if (!wait_for_completion_timeout(&tcm->dev_released,
-			msecs_to_jiffies(3000)))
-		LOGW("Timeout waiting for notifier callbacks\n");
-#endif
-
+	tcm->tp_probe_success = false;
+	syna_xiaomi_touch_remove(tcm);
 #if defined(ENABLE_HELPER)
 	cancel_work_sync(&tcm->helper.work);
 	flush_workqueue(tcm->helper.workqueue);
 	destroy_workqueue(tcm->helper.workqueue);
 #endif
-
-	/* Unregister QTS client */
-	if (tcm->qts_enabled) {
-		qts_client_unregister();
-		mutex_destroy(&tcm->tui_transition_lock);
-	}
-
 #if defined(ENABLE_DISP_NOTIFIER)
-#if defined(USE_DRM_BRIDGE)
-		syna_dev_unregister_panel(&tcm->panel_bridge);
+#if defined(USE_DRM_PANEL_NOTIFIER)
+	if (active_panel)
+		drm_panel_notifier_unregister(active_panel,
+				&tcm->fb_notifier);
 #else
-		fb_unregister_client(&tcm->fb_notifier);
+	fb_unregister_client(&tcm->fb_notifier);
 #endif
 #endif
 
 #ifdef HAS_SYSFS_INTERFACE
-	syna_sysfs_remove_dir(tcm);
-#endif
 	/* remove the cdev and sysfs nodes */
 	syna_cdev_remove(tcm);
-
-	/* Prevent ops_power_on from being called during disconnect/shutdown.
-	 * gpio_direction_input has been moved out of ops_power_on, so this
-	 * no longer risks a pinctrl crash, but is kept as a safety guard.
-	 */
-	if (tcm->hw_if)
-		tcm->hw_if->ops_power_on = NULL;
+#endif
 
 	/* check the connection status, and do disconnection */
-	if (syna_dev_disconnect(tcm) < 0)
+	if (tcm->dev_disconnect(tcm) < 0)
 		LOGE("Fail to do device disconnection\n");
 
 	if (tcm->userspace_app_info != NULL)
 		syna_pal_mem_free(tcm->userspace_app_info);
 
 	syna_tcm_buf_release(&tcm->event_data);
+
 	syna_pal_mutex_free(&tcm->tp_event_mutex);
 
 	/* remove the allocated tcm device */
 	syna_tcm_remove_device(tcm->tcm_dev);
 
+	/* release testing_hcd */
+	if (tcm->testing_hcd) {
+		kfree((void *)tcm->testing_hcd);
+		tcm->testing_hcd = NULL;
+	}
+
 	/* release the device context */
-	syna_pal_completion_free(&tcm->init_completed);
 	syna_pal_mem_free((void *)tcm);
 
-#if (KERNEL_VERSION(6, 12, 0) <= LINUX_VERSION_CODE)
-	return;
-#else
-	return 0;
-#endif
 }
 
-/*
- * Release all resources.
- *
- * param
- *    [in] pdev: pointer to platform device
- *
- * return
- *    void.
- */
-static void syna_dev_shutdown(struct platform_device *pdev)
+#ifdef CONFIG_PM
+static int syna_pm_suspend(struct device *dev)
 {
-	syna_dev_remove(pdev);
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+
+	LOGI("enter!\n");
+	if (!tcm) {
+		LOGE("Failed to enter syna_pm_suspend!\n");
+		return -1;
+	}
+	tcm->tp_pm_suspend = true;
+	reinit_completion(&tcm->pm_resume_completion);
+	return 0;
 }
 
-/* Definitions of TouchComm platform device */
+static int syna_pm_resume(struct device *dev)
+{
+	struct syna_tcm *tcm = dev_get_drvdata(dev);
+
+	LOGI("enter!\n");
+	if (!tcm) {
+		LOGE("Failed to enter syna_pm_suspend!\n");
+		return -1;
+	}
+	tcm->tp_pm_suspend = false;
+	complete(&tcm->pm_resume_completion);
+	return 0;
+}
+
+static const struct dev_pm_ops syna_dev_pm_ops = {
+	.suspend = syna_pm_suspend,
+	.resume = syna_pm_resume,
+};
+#endif
+
 static struct platform_driver syna_dev_driver = {
 	.driver = {
 		.name = PLATFORM_DRIVER_NAME,
+		.owner = THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm = &syna_dev_pm_ops,
+#endif
 	},
 	.probe = syna_dev_probe,
 	.remove = syna_dev_remove,
-	.shutdown = syna_dev_shutdown,
 };
 
-/*
- * Entry of the TouchComm device driver.
- */
 
+/**
+ * syna_dev_module_init()
+ *
+ * The entry function of the reference driver, which initialize the
+ * lower-level bus and register a platform driver.
+ *
+ * @param
+ *    void.
+ *
+ * @return
+ *    0 if the driver registered and bound to a device,
+ *    else returns a negative error code and with the driver not registered.
+ */
 static int __init syna_dev_module_init(void)
 {
 	int retval;
 
-	retval = syna_hw_interface_bind();
+	retval = syna_hw_interface_init();
 	if (retval < 0)
 		return retval;
 
 	return platform_driver_register(&syna_dev_driver);
 }
 
+/**
+ * syna_dev_module_exit()
+ *
+ * Function is called when un-installing the driver.
+ * Remove the registered platform driver and the associated bus driver.
+ *
+ * @param
+ *    void.
+ *
+ * @return
+ *    none.
+ */
 static void __exit syna_dev_module_exit(void)
 {
 	platform_driver_unregister(&syna_dev_driver);
 
-	syna_hw_interface_unbind();
-
-	LOGI("Driver %s uninstalled\n", PLATFORM_DRIVER_NAME);
+	syna_hw_interface_exit();
 }
 
-
-late_initcall(syna_dev_module_init);
+module_init(syna_dev_module_init);
 module_exit(syna_dev_module_exit);
 
-MODULE_SOFTDEP("pre: qts");
-MODULE_DESCRIPTION("Synaptics TouchComm Touch Driver");
-MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Synaptics, Inc.");
+MODULE_DESCRIPTION("Synaptics TCM Touch Driver");
+MODULE_LICENSE("GPL v2");
+
