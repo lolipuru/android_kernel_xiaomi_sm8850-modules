@@ -71,6 +71,7 @@ ifdef CONFIG_SND_SOC_CS35L43
 	CS35L43_OBJS += cs35l43-tables.o
 	CS35L43_OBJS += cs35l43-cal.o
 	CS35L43_OBJS += wm_adsp.o
+	CS35L43_OBJS += cs_dsp.o
 endif
 
 LINUX_INC +=	-Iinclude/linux

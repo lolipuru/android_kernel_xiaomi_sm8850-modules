@@ -638,6 +638,7 @@ audio_modules.register(
         "cs35l43-tables.c",
         "cs35l43-cal.c",
         "wm_adsp.c",
+        "cs_dsp.c",
     ],
     deps = [soc_label("%b/drivers/misc/miev")],
 )

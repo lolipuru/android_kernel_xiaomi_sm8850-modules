@@ -996,3 +996,5 @@
 #define REG_VALUE_SIZE                      128 /* bytes */
 
 int mievent_report(unsigned int eventid,const char *value,struct device *dev, const char *reg);
+int cs_dsp_load_coeff(struct cs_dsp *dsp, const struct firmware *firmware,
+		      const char *file);
