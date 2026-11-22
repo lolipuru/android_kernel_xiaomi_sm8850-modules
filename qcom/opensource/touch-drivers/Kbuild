@@ -432,4 +432,22 @@ ifeq ($(CONFIG_TOUCHSCREEN_GOODIX_9615V), y)
 	obj-$(CONFIG_MSM_TOUCH) += goodix_core.o
 endif
 
+ifeq ($(CONFIG_TOUCHSCREEN_FOCALTECH_3383), y)
+	focaltech_touch-y := \
+		focaltech_3383/focaltech_core.o \
+		focaltech_3383/focaltech_ex_fun.o \
+		focaltech_3383/focaltech_ex_mode.o \
+		focaltech_3383/focaltech_gesture.o \
+		focaltech_3383/focaltech_esdcheck.o \
+		focaltech_3383/focaltech_point_report_check.o \
+		focaltech_3383/focaltech_test/focaltech_test.o \
+		focaltech_3383/focaltech_test/focaltech_test_ini.o \
+		focaltech_3383/focaltech_test/supported_ic/focaltech_test_ft3383.o \
+		focaltech_3383/focaltech_flash/focaltech_upgrade_ft3383.o \
+		focaltech_3383/focaltech_flash.o \
+		focaltech_3383/focaltech_spi.o
+
+	obj-$(CONFIG_MSM_TOUCH) += focaltech_touch.o
+endif
+
 CDEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"
