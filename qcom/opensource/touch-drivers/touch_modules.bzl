@@ -291,3 +291,25 @@ module_entry(
         "qts",
     ],
 )
+
+#define ddk_module() for goodix_core
+module_entry(
+    name = "goodix_core",
+    config_option = "CONFIG_TOUCHSCREEN_GOODIX_9615V",
+    srcs = [
+            "goodix_9615v/goodix_brl_fwupdate.c",
+            "goodix_9615v/goodix_brl_hw.c",
+            "goodix_9615v/goodix_brl_i2c.c",
+            "goodix_9615v/goodix_brl_normalize_coeffi_update.c",
+            "goodix_9615v/goodix_brl_spi.c",
+            "goodix_9615v/goodix_cfg_bin.c",
+            "goodix_9615v/goodix_ts_core.c",
+            "goodix_9615v/goodix_ts_gesture.c",
+            "goodix_9615v/goodix_ts_inspect.c",
+            "goodix_9615v/goodix_ts_tools.c",
+            "goodix_9615v/goodix_ts_utils.c",
+    ],
+    deps = [
+            "xiaomi_touch",
+    ],
+)
