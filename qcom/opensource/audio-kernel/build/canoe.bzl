@@ -43,7 +43,8 @@ arch_modules = [
     "lpass_bt_swr_dlkm",
     "qmp_dlkm",
     "wsa885x_i2c_dlkm",
-    "simple_amp_dlkm"
+    "simple_amp_dlkm",
+    "cs35l43_dlkm",
 ]
 
 arch_config_options = [
@@ -65,6 +66,7 @@ arch_config_options = [
     "CONFIG_SND_SOC_QMP",
     "CONFIG_SND_SOC_WSA885X_I2C",
     "CONFIG_SND_SOC_SIMPLE_AMP",
+    "CONFIG_SND_SOC_CS35L43",
 ]
 
 def define_canoe():
