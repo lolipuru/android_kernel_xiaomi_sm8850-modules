@@ -53,6 +53,7 @@ load(":build/canoe.bzl", "define_canoe")
 load(":build/chora.bzl", "define_chora")
 load(":build/malabar.bzl", "define_malabar")
 load(":build/myron.bzl", "define_myron")
+load(":build/pudding.bzl", "define_pudding")
 
 define_sun()
 define_kalama()
@@ -61,6 +62,7 @@ define_blair()
 define_canoe()
 define_malabar()
 define_myron()
+define_pudding()
 
 filegroup(
     name = "dt_binding_headers",

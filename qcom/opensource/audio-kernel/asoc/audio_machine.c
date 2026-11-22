@@ -1367,7 +1367,7 @@ static struct snd_soc_dai_link msm_tdm_dai_links[] = {
 		.ignore_suspend = 1,
 		SND_SOC_DAILINK_REG(pri_tdm_tx_0),
 	},
-#if defined(CONFIG_TARGET_PRODUCT_MYRON)
+#if defined(CONFIG_TARGET_PRODUCT_MYRON) || defined(CONFIG_TARGET_PRODUCT_PUDDING)
 	{
 		.name = LPASS_BE_PRI_TDM_RX_0_VIRT,
 		.stream_name = LPASS_BE_PRI_TDM_RX_0_VIRT,
