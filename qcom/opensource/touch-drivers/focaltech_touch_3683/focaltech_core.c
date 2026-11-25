@@ -300,6 +300,17 @@ static int fts_set_thp_report_rate(struct fts_ts_data *ts_data, int rate)
 	return 0;
 }
 
+static void fts_report_rate_recovery(struct fts_ts_data *ts_data)
+{
+	s32 value = 135;
+
+	if (ts_data->report_rate_status == 135) {
+		FTS_DEBUG("%s, recover report_rate to %d\n", __func__, ts_data->report_rate_status);
+		if (fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &value, 2) < 0)
+			FTS_ERROR("%s, Failed to switch Report_Rate to 135HZ", __func__);
+	}
+}
+
 /*****************************************************************************
 *  Name: fts_tp_state_recovery
 *  Brief: Need execute this function when reset
@@ -309,18 +320,12 @@ static int fts_set_thp_report_rate(struct fts_ts_data *ts_data, int rate)
 *****************************************************************************/
 void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 {
-	int ret = 0;
 	FTS_FUNC_ENTER();
 	fts_wait_tp_to_valid();
 	if (ts_data->charger_status)
 		fts_charger_on(ts_data, 1);
 	fts_gesture_recovery(ts_data);
-	if (ts_data->enable_touch_raw &&
-	    fts_valid_thp_report_rate(ts_data->report_rate_status)) {
-		ret = fts_set_thp_report_rate(ts_data, ts_data->report_rate_status);
-		if (ret < 0)
-			FTS_ERROR("THP report rate recovery failed: %d", ret);
-	}
+	fts_report_rate_recovery(ts_data);
 	fts_update_touchmode_data(ts_data);
 	if (ts_data->gamemode_enabled)
 		fts_write_reg(0x8E, 1);
@@ -374,17 +379,12 @@ int fts_recover_after_reset(void)
 	}
 #endif
 
-	if (fts_data->enable_touch_raw &&
-	    fts_valid_thp_report_rate(fts_data->report_rate_status)) {
-		ret = fts_set_thp_report_rate(fts_data, fts_data->report_rate_status);
-		if (ret < 0)
-			FTS_ERROR("THP report rate recovery failed: %d", ret);
-	} else if (fts_data->report_rate_status == 120) {
+	if (fts_data->report_rate_status == 135) {
+		s32 value = 135;
+
 		FTS_INFO("report_rate = %d\n", fts_data->report_rate_status);
-		/*reset Report_Rate to 120HZ*/
-		if (fts_write_reg(0x92, 1) < 0) {
-			FTS_ERROR("Failed to switch Report_Rate to 120HZ");
-		}
+		if (fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &value, 2) < 0)
+			FTS_ERROR("Failed to switch Report_Rate to 135HZ");
 	}
 	return 0;
 }
@@ -2695,28 +2695,61 @@ void fts_xiaomi_touch_fod_test(int value)
 void fts_xiaomi_touch_fod_attn(int value)
 {
 	int ret = 0;
-	u8 reg = 0;
+	int retry = 5;
+	u8 attn = 0;
 	u8 status = 0;
 
-	if (value > 1 && value != 0x14 && value != 0x15) {
+	switch (value) {
+	case 10:
+	case 11:
+	case 20:
+	case 21:
+		ret = fts_read_reg(FTS_REG_GESTURE_SUPPORT, &attn);
+		if (ret < 0) {
+			FTS_ERROR("failed to read gesture support reg,retval = %d value = %d\n", ret, value);
+			return;
+		}
+		if (value == 10)
+			attn = 0x80 | (attn & 0x3F);
+		else if (value == 11)
+			attn |= 0xC0;
+		else if (value == 20)
+			attn |= 0xA0;
+		else
+			attn = 0x80 | (attn & 0x1F);
+		ret = fts_write_reg(FTS_REG_GESTURE_SUPPORT, attn);
+		break;
+	case 0:
+	case 1:
+	case 2:
+		attn = (value == 0) ? 0x55 : (value == 1) ? 0xAA : 0;
+		ret = enter_factory_mode();
+		if (ret < 0) {
+			FTS_ERROR("failed to enter factory mode, ret = %d value = %d\n", ret, value);
+			return;
+		}
+		do {
+			ret = fts_write_reg(FTS_REG_FOD_ATTN, attn);
+			FTS_DEBUG("write attn status:%x", attn);
+			msleep(15);
+			fts_read_reg(FTS_REG_FOD_ATTN, &status);
+			FTS_DEBUG("read attn status:%x", status);
+			if (value > 1) {
+				attn = 0;
+				ret = enter_work_mode();
+				break;
+			}
+		} while (status != (u8)(attn + 1) && retry-- > 0);
+		break;
+	default:
 		FTS_ERROR("invalid value = %d\n", value);
 		return;
 	}
 
-	ret = fts_write_reg(0xD0, (value == 1 || value == 0x15) ? 1 : 0);
-	if (ret < 0) {
-		FTS_ERROR("failed to read gesture support reg,retval = %d value = %d\n", ret, value);
-		return;
-	}
-
-	reg = 0xD0;
-	ret = fts_read(&reg, 1, &status, 1);
-	if (ret < 0) {
-		FTS_ERROR("failed to read gesture support reg,retval = %d value = %d\n", ret, value);
-		return;
-	}
-
-	FTS_INFO("Success to enable attn, value = %d, set attn status:0x%x\n", value, status);
+	if (ret < 0)
+		FTS_ERROR("Failed to enable attn, value = %d, set attn status:0x%x\n", value, attn);
+	else
+		FTS_INFO("Success to enable attn, value = %d, set attn status:0x%x\n", value, attn);
 }
 
 void fts_xiaomi_touch_fod_low_attn(int value)
@@ -2934,22 +2967,23 @@ void fts_set_fod_downup(struct fts_ts_data *ts_data, int enable)
 int fts_switch_report_rate(struct fts_ts_data *ts_data, bool on)
 {
 	int ret = 0;
-	FTS_INFO("on: %d, set Report_Rate_status:%s", on,  (on == true) ? "240HZ" : "120HZ");
+	s32 value_1 = 135;
+	s32 value_2 = 240;
+
+	FTS_INFO("on: %d, set Report_Rate_status:%s", on, (on == true) ? "240HZ" : "135HZ");
 	if (on == 0) {
-		ts_data->report_rate_status = 120;
-		/*update Report_Rate to 120HZ*/
-		ret = fts_write_reg(0x92, 1);
+		ts_data->report_rate_status = 135;
+		ret = fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &value_1, 2);
 		if (ret < 0) {
-			FTS_ERROR("Failed to switch Report_Rate to 120HZ, ret=%d", ret);
+			FTS_ERROR("failed send report rate cmd to switch Report_Rate to 135HZ, ret=%d", ret);
 			return ret;
 		}
 	}
 	if (on == 1) {
 		ts_data->report_rate_status = 240;
-		/*update Report_Rate to 240HZ*/
-		ret = fts_write_reg(0x92, 0);
+		ret = fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &value_2, 2);
 		if (ret < 0) {
-			FTS_ERROR("Failed to switch Report_Rate to 240HZ, ret=%d", ret);
+			FTS_ERROR("failed send report rate cmd to switch Report_Rate to 240HZ, ret=%d", ret);
 			return ret;
 		}
 	}
@@ -3244,7 +3278,7 @@ void fts_set_cur_value(int mode_input, int *value_input)
 	}
 
 	if (fts_data->suspended && mode_input != DATA_MODE_138 &&
-	    mode_input != DATA_MODE_174) {
+	    mode_input != DATA_MODE_174 && mode_input != DATA_MODE_175) {
 		FTS_INFO("tp is suspend, skip set_cur_value: touch mode:%d, value:%d", mode, value);
 		return;
 	}
@@ -3259,18 +3293,6 @@ void fts_set_cur_value(int mode_input, int *value_input)
 	if (mode >= DATA_MODE_2 && mode <= DATA_MODE_8) {
 		touch_mode[mode][SET_CUR_VALUE] = value;
 		fts_update_touchmode_data(fts_data);
-		return;
-	}
-
-	if (mode == DATA_MODE_9) {
-		FTS_INFO("Mode:DATA_MODE_9  Report_Rate_status = %d", value);
-		if (value == 0) {
-			fts_data->report_rate_status = 120;
-			ret = fts_write_reg(0x92, 1);
-		} else if (value == 1) {
-			fts_data->report_rate_status = 240;
-			ret = fts_write_reg(0x92, 0);
-		}
 		return;
 	}
 
@@ -3320,11 +3342,6 @@ void fts_set_cur_value(int mode_input, int *value_input)
 		return;
 	}
 
-	if (mode == DATA_MODE_54) {
-		fts_switch_report_rate(fts_data, !!value);
-		return;
-	}
-
 	if (mode == DATA_MODE_62) {
 		fts_htc_enter_idle(value_input);
 		return;
@@ -3363,6 +3380,11 @@ void fts_set_cur_value(int mode_input, int *value_input)
 		ret = fts_thp_ic_write_interfaces(0x11, &value, 2);
 		if (ret < 0)
 			FTS_ERROR("set idle report rate %d failed: %d", value, ret);
+		return;
+	}
+
+	if (mode == DATA_MODE_175) {
+		fts_xiaomi_touch_fod_attn(value ? 11 : 10);
 		return;
 	}
 
@@ -3665,6 +3687,28 @@ void fts_game_mode_update(long mode_update_flag, int mode_value[DATA_MODE_45])
 
 	if (!fts_data)
 		return;
+
+	if (!mode_update_flag) {
+		FTS_INFO("no need update mode value");
+		return;
+	}
+
+	if (fts_data->enable_touch_raw) {
+		s32 temp_value = mode_value[DATA_MODE_0];
+
+		if (fts_thp_ic_write_interfaces(SET_GAME_MODE_EN_TYPE, &temp_value, 1) < 0)
+			FTS_ERROR("failed to send game mode: %d", temp_value);
+		FTS_INFO("game mode status: %s", temp_value ? "ON" : "OFF");
+		temp_value = fts_data->report_rate_status;
+		fts_thp_ic_write_interfaces(SET_REPORT_RATE_TYPE, &temp_value, 2);
+		return;
+	}
+
+	fts_data->is_expert_mode = mode_update_flag & (1L << DATA_MODE_6);
+	if (fts_data->is_expert_mode)
+		FTS_INFO("Enter Mode:Expert_Mode");
+
+	fts_switch_report_rate(fts_data, mode_value[DATA_MODE_0] == 1);
 
 	if (mode_update_flag & (1L << DATA_MODE_0)) {
 		val = mode_value[DATA_MODE_0];

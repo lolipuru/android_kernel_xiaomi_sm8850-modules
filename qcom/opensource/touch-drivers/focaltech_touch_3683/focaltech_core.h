@@ -764,6 +764,8 @@ int fts_set_thermal_temp(int temp);
 void fts_set_fod_downup(struct fts_ts_data *ts_data, int enable);
 void fts_xiaomi_touch_fod_attn(int value);
 void fts_xiaomi_touch_fod_low_attn(int value);
+int enter_work_mode(void);
+int enter_factory_mode(void);
 #if IS_ENABLED(CONFIG_MIEV)
 void focal_touch_dfs_test(int value);
 #endif
