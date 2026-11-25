@@ -2722,6 +2722,8 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"mi,mdss-dsi-doze-hbm-nolp-command",
 	"mi,mdss-dsi-doze-lbm-nolp-command",
 	"mi,mdss-dsi-em-pulse-supplement-switch-command",
+	"mi,mdss-dsi-doze-suspend-hbm-command",
+	"mi,mdss-dsi-doze-suspend-lbm-command",
 	"mi,mdss-dsi-demura-over-threshold-command",
 	"mi,mdss-dsi-demura-under-threshold-command",
 	"mi,mdss-dsi-flat-mode-on-command",
@@ -2840,6 +2842,8 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"mi,mdss-dsi-doze-hbm-nolp-command-state",
 	"mi,mdss-dsi-doze-lbm-nolp-command-state",
 	"mi,mdss-dsi-em-pulse-supplement-switch-command-state",
+	"mi,mdss-dsi-doze-suspend-hbm-command-state",
+	"mi,mdss-dsi-doze-suspend-lbm-command-state",
 	"mi,mdss-dsi-demura-over-threshold-command-state",
 	"mi,mdss-dsi-demura-under-threshold-command-state",
 	"mi,mdss-dsi-flat-mode-on-command-state",
@@ -5946,6 +5950,19 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 	}
 
 #ifdef MI_DISPLAY_MODIFY
+	if (mi_get_panel_id_by_dsi_panel(panel) == P11U_PANEL_PA) {
+		if (panel->mi_cfg.panel_state == PANEL_STATE_DOZE_HIGH) {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_MI_DOZE_HBM_NOLP, false);
+			if (rc)
+				DSI_ERR("[%s] failed to send DSI_CMD_SET_MI_DOZE_HBM_NOLP cmd, rc=%d\n",
+						panel->name, rc);
+		} else if (panel->mi_cfg.panel_state == PANEL_STATE_DOZE_LOW) {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_MI_DOZE_LBM_NOLP, false);
+			if (rc)
+				DSI_ERR("[%s] failed to send DSI_CMD_SET_MI_DOZE_LBM_NOLP cmd, rc=%d\n",
+						panel->name, rc);
+		}
+	}
 	if (mi_cfg->feature_val[DISP_FEATURE_FULLSCREEN_AOD_STATUS]) {
 		if (mi_get_panel_id(panel->mi_cfg.mi_panel_id) == P2_PANEL_PA ||
 			mi_get_panel_id(panel->mi_cfg.mi_panel_id) == P2_PANEL_SA ) {
@@ -5982,8 +5999,26 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
  #ifdef MI_DISPLAY_MODIFY
 	if (panel->mi_cfg.panel_state == PANEL_STATE_DOZE_HIGH
 		|| panel->mi_cfg.panel_state == PANEL_STATE_DOZE_LOW) {
+		if (mi_get_panel_id_by_dsi_panel(panel) == P11U_PANEL_PA) {
+			if (panel->mi_cfg.panel_state == PANEL_STATE_DOZE_HIGH) {
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_MI_DOZE_SUSPEND_HBM, false);
+				if (rc)
+					DISP_ERROR("[%s] failed to send DSI_CMD_SET_MI_DOZE_SUSPEND_HBM cmd, rc=%d\n",
+						panel->type, rc);
+				else
+					DISP_TIME_INFO("%s panel set lp2: DOZE_HBM\n", panel->type);
+			} else {
+				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_MI_DOZE_SUSPEND_LBM, false);
+				if (rc)
+					DISP_ERROR("[%s] failed to send DSI_CMD_SET_MI_DOZE_SUSPEND_LBM cmd, rc=%d\n",
+						panel->type, rc);
+				else
+					DISP_TIME_INFO("%s panel set lp2: DOZE_LBM\n", panel->type);
+			}
+		} else {
 			DSI_INFO("panel already in aod mode, skip set DSI_CMD_SET_LP2\n");
 			goto exit;
+		}
 	} else if (!panel->mi_cfg.fullscreen_aod_status) {
 		need_set_doze = true;
 	}
