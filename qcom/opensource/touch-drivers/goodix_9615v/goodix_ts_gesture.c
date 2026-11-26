@@ -211,6 +211,8 @@ int goodix_gesture_ist(struct goodix_ts_core *cd)
 			ts_debug("not enable SINGLE-TAP");
 			break;
 		}
+		if (xiaomi_touch_report_gesture(GESTURE_SINGLETAP_EVENT))
+			break;
 		ts_info("GTP gesture report single tap");
 		key_value = KEY_GOTO;
 		input_report_key(cd->input_dev, key_value, 1);
@@ -224,6 +226,8 @@ int goodix_gesture_ist(struct goodix_ts_core *cd)
 			ts_debug("not enable DOUBLE-TAP");
 			break;
 		}
+		if (xiaomi_touch_report_gesture(GESTURE_DOUBLETAP_EVENT))
+			break;
 
 		ts_info("GTP gesture report double tap");
 		key_value = KEY_WAKEUP;

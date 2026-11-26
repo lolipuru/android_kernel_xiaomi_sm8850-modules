@@ -1030,6 +1030,8 @@ static int fts_read_and_report_foddata(struct fts_ts_data *data)
 	 */
 	switch (buf[1]) {
 	case 0x24:
+		if (xiaomi_touch_report_gesture(GESTURE_DOUBLETAP_EVENT))
+			break;
 		FTS_INFO("DoubleClick Gesture detected, Wakeup panel\n");
 		input_report_key(data->input_dev, KEY_WAKEUP, 1);
 		input_sync(data->input_dev);
@@ -1047,6 +1049,8 @@ static int fts_read_and_report_foddata(struct fts_ts_data *data)
 			FTS_INFO("nonui_status is one/two, don't report key goto\n");
 			return 0;
 		}
+		if (xiaomi_touch_report_gesture(GESTURE_SINGLETAP_EVENT))
+			break;
 		FTS_INFO("FOD status report KEY_GOTO\n");
 		input_report_key(data->input_dev, KEY_GOTO, 1);
 		input_sync(data->input_dev);

@@ -527,17 +527,21 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
 	}
 	if ((tcm->pwr_state == LOW_PWR) && tcm->irq_wake) {
 		if (touch_data->gesture_id == GESTURE_ID_DOUBLE_TAP) {
-			LOGI("Double TAP Detected\n");
-			input_report_key(input_dev, KEY_WAKEUP, 1);
-			input_sync(input_dev);
-			input_report_key(input_dev, KEY_WAKEUP, 0);
-			input_sync(input_dev);
+			if (!xiaomi_touch_report_gesture(GESTURE_DOUBLETAP_EVENT)) {
+				LOGI("Double TAP Detected\n");
+				input_report_key(input_dev, KEY_WAKEUP, 1);
+				input_sync(input_dev);
+				input_report_key(input_dev, KEY_WAKEUP, 0);
+				input_sync(input_dev);
+			}
 		} else if (touch_data->gesture_id == GESTURE_ID_SINGLE_TAP) {
-			LOGI("Single TAP Detected\n");
-			input_report_key(input_dev, KEY_GOTO, 1);
-			input_sync(input_dev);
-			input_report_key(input_dev, KEY_GOTO, 0);
-			input_sync(input_dev);
+			if (!xiaomi_touch_report_gesture(GESTURE_SINGLETAP_EVENT)) {
+				LOGI("Single TAP Detected\n");
+				input_report_key(input_dev, KEY_GOTO, 1);
+				input_sync(input_dev);
+				input_report_key(input_dev, KEY_GOTO, 0);
+				input_sync(input_dev);
+			}
 		}
 	}
 #endif
